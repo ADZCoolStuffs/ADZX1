@@ -1,0 +1,100 @@
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()  -- Waits for the character to load
+
+local collisionDetected = false
+local previousYLevel = 0
+local weaponRange = 18
+local swingSpeed = 40
+local teleportInterval = 0.005
+local sword = character.Backpack:FindFirstChild("wood_sword")  -- Corrected technical name
+
+local raycastParams = RaycastParams.new()
+raycastParams.FilterDescendantsInstances = {character}
+raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+
+-- Optimized function to get entities in range once
+local function getEntitiesInRange()
+    local entitiesInRange = {}
+    local charPos = character.HumanoidRootPart.Position
+    for _, entity in pairs(workspace:GetDescendants()) do
+        if entity:IsA("Model") and entity.PrimaryPart and (entity.PrimaryPart.Position - charPos).Magnitude <= weaponRange then
+            table.insert(entitiesInRange, entity)
+        end
+    end
+    return entitiesInRange
+end
+
+local function teleportToGround()
+    local raycastOrigin = character.HumanoidRootPart.CFrame.Position + Vector3.new(0, -1000, 0)
+    local raycastDirection = Vector3.new(0, 1, 0)
+    local raycastResult = workspace:Raycast(raycastOrigin, raycastDirection * 1000, raycastParams)
+    
+    if raycastResult then
+        character.HumanoidRootPart.CFrame = CFrame.new(character.HumanoidRootPart.CFrame.X, raycastResult.Position.Y + 3, character.HumanoidRootPart.CFrame.Z)
+    else
+        character.HumanoidRootPart.CFrame = CFrame.new(character.HumanoidRootPart.CFrame.X, previousYLevel, character.HumanoidRootPart.CFrame.Z)
+    end
+end
+
+game:GetService("UserInputService").InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.H then
+        collisionDetected = true
+        previousYLevel = character.HumanoidRootPart.CFrame.Y
+    end
+end)
+
+game:GetService("UserInputService").InputEnded:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.H then
+        collisionDetected = false
+    end
+end)
+
+while true do
+    character.Humanoid.WalkSpeed = 25  -- Set walk speed to 25
+    
+    if collisionDetected then
+        local entitiesInRange = getEntitiesInRange()
+        
+        if #entitiesInRange > 0 then
+            -- Equip sword and perform swing actions
+            if sword then
+                character.Humanoid:EquipTool(sword)
+            end
+            
+            for i = 1, swingSpeed do
+                wait(0.025)  -- Simulate sword swing animation or actions
+            end
+            
+            -- Teleporting logic
+            local teleporting = true
+            while teleporting do
+                character.HumanoidRootPart.CFrame = CFrame.new(character.HumanoidRootPart.CFrame.X, 2000, character.HumanoidRootPart.CFrame.Z)
+                wait(teleportInterval)
+                character.HumanoidRootPart.CFrame = CFrame.new(character.HumanoidRootPart.CFrame.X, previousYLevel, character.HumanoidRootPart.CFrame.Z)
+                wait(teleportInterval)
+
+                -- Check if entities are still in range
+                local stillInRange = false
+                for _, entity in pairs(entitiesInRange) do
+                    if (entity.PrimaryPart.Position - character.HumanoidRootPart.Position).Magnitude <= weaponRange then
+                        stillInRange = true
+                        break
+                    end
+                end
+                
+                if not stillInRange then
+                    teleporting = false
+                end
+            end
+        else
+            teleportToGround()
+        end
+        
+        -- Check if player has fallen more than 5 meters and teleport to ground
+        if character.HumanoidRootPart.CFrame.Y < previousYLevel - 5 then
+            teleportToGround()
+        end
+    end
+    
+    wait()  -- Keep the loop running with minimum impact on frame rate
+end
