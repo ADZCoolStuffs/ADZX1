@@ -19,14 +19,13 @@ local REACH_DISTANCE = 18
 local ANTI_FALL_HEIGHT = 10
 local WALL_CLIMB_SPEED = 0.5
 local ANTI_VOID_DISTANCE = 50
+local SAFE_GROUND_HEIGHT = 10
 
 -- Movement States
 local flying = false
-local lastVelocity = Vector3.new(0, 0, 0)
+local lastSafePosition = root.Position
 
--- Utility Functions
-
--- Fly Function
+-- Fly Function (Press C to toggle flying)
 local function updateFly()
     if flying then
         local moveDir = Vector3.new(0, 0, 0)
@@ -43,17 +42,21 @@ local function updateFly()
     end
 end
 
--- Anti-Void (teleport back if void detected)
+-- Anti-Void (teleports back if void detected)
 local function antiVoid()
-    local ray = Ray.new(root.Position, Vector3.new(0, -ANTI_VOID_DISTANCE, 0))
-    local hit = Workspace:Raycast(ray.Origin, ray.Direction)
-    if not hit then
-        local safePosition = Vector3.new(root.Position.X, 10, root.Position.Z)
-        root.CFrame = CFrame.new(safePosition)
+    local ray = Ray.new(root.Position, Vector3.new(0, -ANTI_VOID_DISTANCE, 0))  -- Cast a ray downward
+    local hit = Workspace:Raycast(ray.Origin, ray.Direction)  -- Check if the ray hits anything
+    
+    if not hit then  -- If nothing is hit (we're in the void)
+        -- Teleport back to the last known safe position
+        root.CFrame = CFrame.new(lastSafePosition)
+    else
+        -- Update the last safe position when we are grounded
+        lastSafePosition = root.Position
     end
 end
 
--- Wall Climb
+-- Wall Climb (climb walls when pressing forward)
 local function wallClimb()
     if UserInputService:IsKeyDown(Enum.KeyCode.W) then
         local raycastDirection = camera.CFrame.LookVector
@@ -105,4 +108,3 @@ UserInputService.InputBegan:Connect(function(input)
         end
     end
 end)
-
