@@ -24,8 +24,9 @@ local config = {
     SAFE_GROUND_THRESHOLD = 4,
     ANTI_HIT_TP_HEIGHT = 1000,
     NUKE_RADIUS = 18,
-    SWORD_TIERS = {"wood_sword","stone_sword","iron_sword","diamond_sword","emerald_sword"},
-    ARMOR_TIERS = {"leather_armor","iron_armor","diamond_armor","emerald_armor"},
+    SWORD_TIERS = {"wood_sword", "stone_sword", "iron_sword", "diamond_sword", "emerald_sword"},
+    ARMOR_TIERS = {"leather_armor", "iron_armor", "diamond_armor", "emerald_armor"},
+    TOOL_TIERS = {"wood_pickaxe", "stone_pickaxe", "iron_pickaxe", "diamond_pickaxe", "wood_axe", "stone_axe", "iron_axe", "diamond_axe"},
     TOXIC_RESPONSES = {
         killResponse = "Keep Yapping|ADZX2",
         bedDestroyed = "LOL Good Luck Fixing Your Bed|ADZX2",
@@ -104,10 +105,8 @@ local function antiVoid()
     
     -- Check below
     local downHit = Workspace:Raycast(root.Position, Vector3.new(0, -config.ANTI_VOID_CHECK_DISTANCE, 0), rayParams)
-    -- Check above
-    local upHit = Workspace:Raycast(root.Position, Vector3.new(0, config.ANTI_VOID_CHECK_DISTANCE, 0), rayParams)
     
-    if not downHit and not upHit then
+    if not downHit then
         root.CFrame = CFrame.new(states.lastSafePosition)
     else
         states.lastSafePosition = root.Position
@@ -138,6 +137,14 @@ local function antiFall()
 end
 
 -- Optimized Nuker/Kill Aura
+local function switchToTool(toolName)
+    local tool = player.Backpack:FindFirstChild(toolName)
+    if tool then
+        humanoid:EquipTool(tool)
+        task.wait(0.5)
+    end
+end
+
 local function nuker()
     local currentTool = character:FindFirstChildWhichIsA("Tool") or player.Backpack:FindFirstChildWhichIsA("Tool")
     if not currentTool then return end
@@ -146,8 +153,11 @@ local function nuker()
         local parent = target.Parent
         if parent then
             if parent.Name == "bed" then
-                firetouchinterest(root, parent, 0)
-                firetouchinterest(root, parent, 1)
+                for _, toolTier in ipairs(config.TOOL_TIERS) do
+                    switchToTool(toolTier)
+                    firetouchinterest(root, parent, 0)
+                    firetouchinterest(root, parent, 1)
+                end
                 ReplicatedStorage.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(
                     config.TOXIC_RESPONSES.bedDestroyed,
                     "All"
@@ -206,56 +216,3 @@ local function equipBestGear()
                     bestSword = item
                 end
             end
-        elseif item:IsA("Accessory") then
-            local armorType = item.Name:match("_(%w+)_armor$")
-            if armorType and armorScores[armorType] then
-                if not bestArmor or armorScores[armorType] > armorScores[bestArmor] then
-                    bestArmor = item
-                end
-            end
-        end
-    end
-    
-    if bestArmor then humanoid:EquipTool(bestArmor) end
-    if bestSword then humanoid:EquipTool(bestSword) end
-end
-
--- Main System Loop
-RunService.Heartbeat:Connect(function()
-    antiKnockback()
-    updateFly()
-    nuker()
-    wallClimb()
-    antiFall()
-    antiVoid()
-    manageAntiHit()
-end)
-
--- Input Handling
-UserInputService.InputBegan:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.C then
-        states.flying = not states.flying
-        if states.flying then
-            task.delay(config.FLY_DURATION, function()
-                states.flying = false
-            end)
-        end
-    end
-end)
-
--- Initialization
-equipBestGear()
-player.Backpack.ChildAdded:Connect(equipBestGear)
-autoToxic()
-
--- Camera Sync System
-local function maintainPOV()
-    if states.antiHitActive then
-        Camera.CFrame = CFrame.new(
-            Vector3.new(root.Position.X, states.originalCameraCF.Y, root.Position.Z),
-            states.originalCameraCF.LookVector * 100
-        )
-    end
-end
-
-RunService.RenderStepped:Connect(maintainPOV)
