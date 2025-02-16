@@ -3,39 +3,22 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ChatService = game:GetService("Chat")
 local HttpService = game:GetService("HttpService")
+local ChatService = game:GetService("Chat")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 local root = character:WaitForChild("HumanoidRootPart")
 local camera = Workspace.CurrentCamera
-local mouse = player:GetMouse()
 
 -- Configuration
-local FLY_DURATION = 2.5
-local FLY_SPEED = 15
 local NUKE_RADIUS = 18
-local SAFE_GROUND_DISTANCE = 4
+local FLY_DURATION = 2.5
 local ANTI_HIT_TP_HEIGHT = 1000
-local WALL_CLIMB_FORCE = Vector3.new(0, 50, 0)
-
-local SWORD_NAMES = {"wood_sword","stone_sword","iron_sword","diamond_sword","emerald_sword"}
-local ARMOR_TIERS = {"leather_armor","iron_armor","diamond_armor","emerald_armor"}
-
--- State Management
-local flying = false
-local flyStartTime = 0
-local antiHitActive = false
-local isWallClimbing = false
-local lastPosition = root.Position
-local lastVelocity = Vector3.new(0,0,0)
-local safePosition = root.Position
-local originalCameraCF = camera.CFrame
-local espCache = {}
-
--- Auto-Toxic Responses
+local SAFE_GROUND_DISTANCE = 4
+local SWORD_TIERS = {"wood_sword", "stone_sword", "iron_sword", "diamond_sword", "emerald_sword"}
+local ARMOR_TIERS = {"leather_armor", "iron_armor", "diamond_armor", "emerald_armor"}
 local TOXIC_RESPONSES = {
     killResponse = "Keep Yapping|ADZX2",
     bedDestroyed = "LOL Good Luck Fixing Your Bed|ADZX2",
@@ -43,100 +26,68 @@ local TOXIC_RESPONSES = {
     defaultDeathResponse = "My Network Provider Paused My Internet|ADZX2",
     winResponse = "ADZX2 >> Everyone"
 }
-
 local TRIGGER_KEYWORDS = {"ez", "noob", "hacker", "haxs", "get better"}
-local trackedKills = {}
 
--- Anti-Void System
-local function checkVoid()
-    local rayParams = RaycastParams.new()
-    rayParams.FilterDescendantsInstances = {character}
-    local downRay = Ray.new(root.Position, Vector3.new(0,-500,0))
-    local downHit = Workspace:Raycast(downRay.Origin, downRay.Direction, rayParams)
-    local upRay = Ray.new(root.Position, Vector3.new(0,500,0))
-    local upHit = Workspace:Raycast(upRay.Origin, upRay.Direction, rayParams)
-    
-    if not downHit and not upHit then
-        root.CFrame = CFrame.new(safePosition)
-    else
-        safePosition = root.Position
-    end
-end
+-- State Management
+local flying = false
+local antiHitActive = false
+local safePosition = root.Position
+local originalCameraCF = camera.CFrame
+local trackedKills = {}
+local espCache = {}
 
 -- Anti-Knockback System
+local lastVelocity = Vector3.new(0, 0, 0)
 local function antiKnockback()
     local currentVelocity = root.Velocity
     local velocityDelta = (currentVelocity - lastVelocity).Magnitude
-    local directionMatch = currentVelocity:Dot(root.CFrame.LookVector)
-    
-    if velocityDelta > 50 and directionMatch < -0.7 then
-        root.CFrame = CFrame.new(lastPosition)
-        root.Velocity = Vector3.new(0,0,0)
+    if velocityDelta > 50 and currentVelocity:Dot(root.CFrame.LookVector) < -0.7 then
+        root.CFrame = CFrame.new(safePosition)
+        root.Velocity = Vector3.new(0, 0, 0)
     end
-    
-    lastPosition = root.Position
     lastVelocity = currentVelocity
 end
 
--- Flying System
+-- Anti-Void System (Teleport back to land if void detected)
+local function antiVoid()
+    local ray = Ray.new(root.Position, Vector3.new(0, -10, 0))
+    local hit = Workspace:Raycast(ray.Origin, ray.Direction)
+    if not hit then
+        -- Teleport back to land
+        local randomPosition = Workspace:FindPartOnRay(ray)
+        if randomPosition then
+            root.CFrame = CFrame.new(randomPosition.Position)
+        end
+    end
+end
+
+-- Enhanced Fly System
 local function updateFly()
-    if flying and (time() - flyStartTime) < FLY_DURATION then
-        local moveDir = Vector3.new(0,0,0)
+    if flying then
+        local moveDir = Vector3.new(0, 0, 0)
         if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir += camera.CFrame.LookVector end
         if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir -= camera.CFrame.LookVector end
         if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir += camera.CFrame.RightVector end
         if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir -= camera.CFrame.RightVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Q) then moveDir += Vector3.new(0,1,0) end
-        if UserInputService:IsKeyDown(Enum.KeyCode.R) then moveDir -= Vector3.new(0,1,0) end
-        moveDir = moveDir.Unit * FLY_SPEED
-        root.Velocity = Vector3.new(moveDir.X, moveDir.Y, moveDir.Z)
-    else
-        flying = false
+        if UserInputService:IsKeyDown(Enum.KeyCode.Q) then moveDir += Vector3.new(0, 1, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.R) then moveDir -= Vector3.new(0, 1, 0) end
+        root.Velocity = moveDir.Unit * 50
     end
 end
 
--- Wall Climb
-local function wallClimb()
-    local ray = Ray.new(root.Position, root.CFrame.LookVector * 3)
-    local hit = Workspace:FindPartOnRayWithIgnoreList(ray, {character})
-    if hit and hit.CanCollide then
-        isWallClimbing = true
-        root.Velocity = WALL_CLIMB_FORCE
-        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-    else
-        isWallClimbing = false
-    end
-end
-
--- Nuker System (Attack and Bed Destruction)
+-- Nuker/Kill Aura System
 local function nuker()
-    local currentTool = character:FindFirstChildWhichIsA("Tool")
-    local hasSword = currentTool and table.find(SWORD_NAMES, currentTool.Name)
-    
-    -- Equip first available sword
-    if not hasSword then
-        for _, tool in ipairs(player.Backpack:GetChildren()) do
-            if table.find(SWORD_NAMES, tool.Name) then
-                humanoid:EquipTool(tool)
-                break
-            end
-        end
-    end
-    
-    -- Destroy beds and attack enemies
     for _, obj in ipairs(Workspace:GetChildren()) do
         if (root.Position - obj.Position).Magnitude < NUKE_RADIUS then
             if obj.Name == "bed" then
                 firetouchinterest(root, obj, 0)
                 firetouchinterest(root, obj, 1)
+                ReplicatedStorage.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(TOXIC_RESPONSES.bedDestroyed, "All")
             elseif obj:FindFirstChild("Humanoid") and obj.Parent ~= character then
-                local enemyHumanoid = obj:FindFirstChild("Humanoid")
-                if enemyHumanoid and enemyHumanoid.Health > 0 then
-                    currentTool:Activate()
-                    mouse.Target = obj
-                    mouse.TargetFilter = obj
+                local tool = character:FindFirstChildWhichIsA("Tool") or player.Backpack:FindFirstChildWhichIsA("Tool")
+                if tool then
                     for _ = 1, 100 do
-                        currentTool:Activate()
+                        tool:Activate()
                         RunService.Heartbeat:Wait()
                     end
                 end
@@ -145,75 +96,159 @@ local function nuker()
     end
 end
 
--- Player Death Handling (Toxic Responses)
-local function onPlayerDeath()
-    local killers = {}
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= player and player.Team ~= player.Team then
-            if player.Character and player.Character:FindFirstChild("Humanoid") and 
-               player.Character.Humanoid:GetAttribute("LastDamageSource") == player.Name then
-                table.insert(killers, player)
+-- ESP System
+local function updateESP()
+    for _, targetPlayer in ipairs(Players:GetPlayers()) do
+        if targetPlayer ~= player and targetPlayer.Team ~= player.Team then
+            local targetChar = targetPlayer.Character
+            if targetChar and not espCache[targetPlayer] then
+                local highlight = Instance.new("Highlight")
+                highlight.FillColor = Color3.new(1, 1, 1)
+                highlight.OutlineColor = Color3.new(1, 1, 1)
+                highlight.Parent = targetChar
+                espCache[targetPlayer] = highlight
             end
+        end
+    end
+end
+
+-- Anti-Hit System
+local function manageAntiHit()
+    local enemiesNear = false
+    for _, target in ipairs(Workspace:GetChildren()) do
+        if target:FindFirstChild("Humanoid") and target ~= character and (root.Position - target.Position).Magnitude < NUKE_RADIUS then
+            enemiesNear = true
+            break
         end
     end
     
-    local response = TOXIC_RESPONSES.defaultDeathResponse
-    for _, killer in ipairs(killers) do
-        for _, msg in ipairs(ChatService:GetChannelForSpeakerAsync(killer):GetMessagesAsync(10)) do
-            if string.match(string.lower(msg.Message), table.concat(TRIGGER_KEYWORDS, "|")) then
-                response = TOXIC_RESPONSES.triggeredResponse
-                break
+    if enemiesNear and not antiHitActive then
+        antiHitActive = true
+        spawn(function()
+            while antiHitActive do
+                local currentPos = root.Position
+                root.CFrame = CFrame.new(Vector3.new(currentPos.X, currentPos.Y + ANTI_HIT_TP_HEIGHT, currentPos.Z))
+                camera.CFrame = CFrame.new(Vector3.new(currentPos.X, originalCameraCF.Y, currentPos.Z), originalCameraCF.LookVector * 100)
+                task.wait(0.05)
+                root.CFrame = CFrame.new(currentPos)
+                camera.CFrame = originalCameraCF
+                task.wait(0.05)
             end
-        end
+        end)
+    elseif not enemiesNear and antiHitActive then
+        antiHitActive = false
     end
-    task.wait(2) -- Delay for dramatic effect
-    ReplicatedStorage.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(response, "All")
 end
 
--- Chat Message Analysis (Triggered Toxic Responses)
-local function analyzeMessage(speaker, message)
-    if speaker == player then return end
-    if humanoid.Health <= 0 and string.match(string.lower(message), table.concat(TRIGGER_KEYWORDS, "|")) then
-        ReplicatedStorage.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(TOXIC_RESPONSES.triggeredResponse, "All")
+-- Auto-Toxic System
+local function trackKills(targetPlayer)
+    if not trackedKills[targetPlayer] then
+        trackedKills[targetPlayer] = targetPlayer.Chatted:Connect(function(message)
+            ReplicatedStorage.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(TOXIC_RESPONSES.killResponse, "All")
+            trackedKills[targetPlayer]:Disconnect()
+            trackedKills[targetPlayer] = nil
+        end)
+    end
+end
+
+humanoid.Died:Connect(function()
+    task.wait(2)
+    ReplicatedStorage.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(TOXIC_RESPONSES.defaultDeathResponse, "All")
+end)
+
+-- Auto Sprint
+local function autoSprint()
+    humanoid.WalkSpeed = 50
+end
+
+-- Reach System (Extended Reach for Attacks)
+local function extendedReach()
+    local tool = character:FindFirstChildWhichIsA("Tool") or player.Backpack:FindFirstChildWhichIsA("Tool")
+    if tool then
+        tool.Reach = 18 -- Set the reach for attacking to 18 studs
+    end
+end
+
+-- Anti-Suffocation
+local function antiSuffocation()
+    if root.Position.Y <= 0 then
+        root.CFrame = CFrame.new(root.Position.X, 50, root.Position.Z) -- Move player up if suffocating
+    end
+end
+
+-- Anti-Fall System
+local function antiFall()
+    if root.Position.Y < 0 then
+        root.CFrame = CFrame.new(root.Position.X, 50, root.Position.Z) -- Prevent falling through the map
+    end
+end
+
+-- Chest Stealer
+local function chestStealer()
+    for _, chest in ipairs(Workspace:GetChildren()) do
+        if chest:IsA("Model") and chest:FindFirstChild("Chest") then
+            local distance = (root.Position - chest.Position).Magnitude
+            if distance < 5 then
+                for _, item in ipairs(chest:GetChildren()) do
+                    if item:IsA("BasePart") then
+                        item.CFrame = root.CFrame
+                        task.wait(0.1)
+                    end
+                end
+            end
+        end
     end
 end
 
 -- Main Loop
 RunService.Heartbeat:Connect(function()
-    checkVoid()
     antiKnockback()
     updateFly()
-    wallClimb()
-    nuker()  -- Nuking logic
+    nuker()
+    updateESP()
+    manageAntiHit()
+    antiVoid()
+    extendedReach()
     autoSprint()
+    chestStealer()
+    antiSuffocation()
+    antiFall()
     
-    -- Handle toxic responses based on player death/chat
-    if humanoid.Health <= 0 then
-        onPlayerDeath()
-    end
-    
-    -- Handle chat messages for toxic triggers
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= player then
-            player.Chatted:Connect(function(message)
-                analyzeMessage(player, message)
-            end)
-        end
+    -- Auto-Ground
+    local ray = Ray.new(root.Position, Vector3.new(0, -SAFE_GROUND_DISTANCE*2, 0))
+    local hit = Workspace:Raycast(ray.Origin, ray.Direction)
+    if hit and (root.Position.Y - hit.Position.Y) > SAFE_GROUND_DISTANCE then
+        root.CFrame = CFrame.new(Vector3.new(root.Position.X, hit.Position.Y + 3, root.Position.Z))
     end
 end)
 
--- User Input Handling (Flying Activation)
+-- Input Handling
 UserInputService.InputBegan:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.C then
         flying = true
-        flyStartTime = time()
-        humanoid.PlatformStand = true
+        task.delay(FLY_DURATION, function() flying = false end)
     end
 end)
 
-UserInputService.InputEnded:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.C then
-        flying = false
-        humanoid.PlatformStand = false
+-- Auto-Equip Best Gear
+local function equipBestGear()
+    local bestArmor, bestSword
+    for _, item in ipairs(player.Backpack:GetChildren()) do
+        if table.find(ARMOR_TIERS, item.Name) then
+            if not bestArmor or ARMOR_TIERS[item.Name] > ARMOR_TIERS[bestArmor.Name] then
+                bestArmor = item
+            end
+        end
+        if table.find(SWORD_TIERS, item.Name) then
+            if not bestSword or SWORD_TIERS[item.Name] > SWORD_TIERS[bestSword.Name] then
+                bestSword = item
+            end
+        end
     end
-end)
+    if bestArmor then humanoid:EquipTool(bestArmor) end
+    if bestSword then humanoid:EquipTool(bestSword) end
+end
+
+-- Initialize
+equipBestGear()
+player.Backpack.ChildAdded:Connect(equipBestGear)
