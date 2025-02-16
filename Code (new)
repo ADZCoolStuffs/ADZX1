@@ -1,0 +1,219 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ChatService = game:GetService("Chat")
+local HttpService = game:GetService("HttpService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local root = character:WaitForChild("HumanoidRootPart")
+local camera = Workspace.CurrentCamera
+local mouse = player:GetMouse()
+
+-- Configuration
+local FLY_DURATION = 2.5
+local FLY_SPEED = 15
+local NUKE_RADIUS = 18
+local SAFE_GROUND_DISTANCE = 4
+local ANTI_HIT_TP_HEIGHT = 1000
+local WALL_CLIMB_FORCE = Vector3.new(0, 50, 0)
+
+local SWORD_NAMES = {"wood_sword","stone_sword","iron_sword","diamond_sword","emerald_sword"}
+local ARMOR_TIERS = {"leather_armor","iron_armor","diamond_armor","emerald_armor"}
+
+-- State Management
+local flying = false
+local flyStartTime = 0
+local antiHitActive = false
+local isWallClimbing = false
+local lastPosition = root.Position
+local lastVelocity = Vector3.new(0,0,0)
+local safePosition = root.Position
+local originalCameraCF = camera.CFrame
+local espCache = {}
+
+-- Auto-Toxic Responses
+local TOXIC_RESPONSES = {
+    killResponse = "Keep Yapping|ADZX2",
+    bedDestroyed = "LOL Good Luck Fixing Your Bed|ADZX2",
+    triggeredResponse = "You Proud? Now You'll Lose LOL|ADZX2",
+    defaultDeathResponse = "My Network Provider Paused My Internet|ADZX2",
+    winResponse = "ADZX2 >> Everyone"
+}
+
+local TRIGGER_KEYWORDS = {"ez", "noob", "hacker", "haxs", "get better"}
+local trackedKills = {}
+
+-- Anti-Void System
+local function checkVoid()
+    local rayParams = RaycastParams.new()
+    rayParams.FilterDescendantsInstances = {character}
+    local downRay = Ray.new(root.Position, Vector3.new(0,-500,0))
+    local downHit = Workspace:Raycast(downRay.Origin, downRay.Direction, rayParams)
+    local upRay = Ray.new(root.Position, Vector3.new(0,500,0))
+    local upHit = Workspace:Raycast(upRay.Origin, upRay.Direction, rayParams)
+    
+    if not downHit and not upHit then
+        root.CFrame = CFrame.new(safePosition)
+    else
+        safePosition = root.Position
+    end
+end
+
+-- Anti-Knockback System
+local function antiKnockback()
+    local currentVelocity = root.Velocity
+    local velocityDelta = (currentVelocity - lastVelocity).Magnitude
+    local directionMatch = currentVelocity:Dot(root.CFrame.LookVector)
+    
+    if velocityDelta > 50 and directionMatch < -0.7 then
+        root.CFrame = CFrame.new(lastPosition)
+        root.Velocity = Vector3.new(0,0,0)
+    end
+    
+    lastPosition = root.Position
+    lastVelocity = currentVelocity
+end
+
+-- Flying System
+local function updateFly()
+    if flying and (time() - flyStartTime) < FLY_DURATION then
+        local moveDir = Vector3.new(0,0,0)
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir += camera.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir -= camera.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir += camera.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir -= camera.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Q) then moveDir += Vector3.new(0,1,0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.R) then moveDir -= Vector3.new(0,1,0) end
+        moveDir = moveDir.Unit * FLY_SPEED
+        root.Velocity = Vector3.new(moveDir.X, moveDir.Y, moveDir.Z)
+    else
+        flying = false
+    end
+end
+
+-- Wall Climb
+local function wallClimb()
+    local ray = Ray.new(root.Position, root.CFrame.LookVector * 3)
+    local hit = Workspace:FindPartOnRayWithIgnoreList(ray, {character})
+    if hit and hit.CanCollide then
+        isWallClimbing = true
+        root.Velocity = WALL_CLIMB_FORCE
+        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+    else
+        isWallClimbing = false
+    end
+end
+
+-- Nuker System (Attack and Bed Destruction)
+local function nuker()
+    local currentTool = character:FindFirstChildWhichIsA("Tool")
+    local hasSword = currentTool and table.find(SWORD_NAMES, currentTool.Name)
+    
+    -- Equip first available sword
+    if not hasSword then
+        for _, tool in ipairs(player.Backpack:GetChildren()) do
+            if table.find(SWORD_NAMES, tool.Name) then
+                humanoid:EquipTool(tool)
+                break
+            end
+        end
+    end
+    
+    -- Destroy beds and attack enemies
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if (root.Position - obj.Position).Magnitude < NUKE_RADIUS then
+            if obj.Name == "bed" then
+                firetouchinterest(root, obj, 0)
+                firetouchinterest(root, obj, 1)
+            elseif obj:FindFirstChild("Humanoid") and obj.Parent ~= character then
+                local enemyHumanoid = obj:FindFirstChild("Humanoid")
+                if enemyHumanoid and enemyHumanoid.Health > 0 then
+                    currentTool:Activate()
+                    mouse.Target = obj
+                    mouse.TargetFilter = obj
+                    for _ = 1, 100 do
+                        currentTool:Activate()
+                        RunService.Heartbeat:Wait()
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Player Death Handling (Toxic Responses)
+local function onPlayerDeath()
+    local killers = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= player and player.Team ~= player.Team then
+            if player.Character and player.Character:FindFirstChild("Humanoid") and 
+               player.Character.Humanoid:GetAttribute("LastDamageSource") == player.Name then
+                table.insert(killers, player)
+            end
+        end
+    end
+    
+    local response = TOXIC_RESPONSES.defaultDeathResponse
+    for _, killer in ipairs(killers) do
+        for _, msg in ipairs(ChatService:GetChannelForSpeakerAsync(killer):GetMessagesAsync(10)) do
+            if string.match(string.lower(msg.Message), table.concat(TRIGGER_KEYWORDS, "|")) then
+                response = TOXIC_RESPONSES.triggeredResponse
+                break
+            end
+        end
+    end
+    task.wait(2) -- Delay for dramatic effect
+    ReplicatedStorage.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(response, "All")
+end
+
+-- Chat Message Analysis (Triggered Toxic Responses)
+local function analyzeMessage(speaker, message)
+    if speaker == player then return end
+    if humanoid.Health <= 0 and string.match(string.lower(message), table.concat(TRIGGER_KEYWORDS, "|")) then
+        ReplicatedStorage.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(TOXIC_RESPONSES.triggeredResponse, "All")
+    end
+end
+
+-- Main Loop
+RunService.Heartbeat:Connect(function()
+    checkVoid()
+    antiKnockback()
+    updateFly()
+    wallClimb()
+    nuker()  -- Nuking logic
+    autoSprint()
+    
+    -- Handle toxic responses based on player death/chat
+    if humanoid.Health <= 0 then
+        onPlayerDeath()
+    end
+    
+    -- Handle chat messages for toxic triggers
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= player then
+            player.Chatted:Connect(function(message)
+                analyzeMessage(player, message)
+            end)
+        end
+    end
+end)
+
+-- User Input Handling (Flying Activation)
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.C then
+        flying = true
+        flyStartTime = time()
+        humanoid.PlatformStand = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.C then
+        flying = false
+        humanoid.PlatformStand = false
+    end
+end)
