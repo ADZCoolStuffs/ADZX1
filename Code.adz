@@ -25,7 +25,10 @@ local config = {
     ARMOR_TIERS = {"leather_armor", "iron_armor", "diamond_armor", "emerald_armor"},
     CIRCLE_COLOR = Color3.fromRGB(0, 170, 255),
     JUMP_VELOCITY = 50,
-    ANTI_FALL_VELOCITY = 0
+    ANTI_FALL_VELOCITY = 0,
+    TOXIC_RESPONSES = {
+        bedDestroyed = "LOL Good Luck Fixing Your Bed|ADZX2"
+    }
 }
 
 local states = {
@@ -236,8 +239,11 @@ local function infiniteJump()
     end)
 
     UserInputService.InputEnded:Connect(function(input)
+        if input.KeyCode == Enum
+    UserInputService.InputEnded:Connect(function(input)
         if input.KeyCode == Enum.KeyCode.Space or input.UserInputType == Enum.UserInputType.Touch then
             states.infJumpEnabled = false
+        end
     end)
 
     RunService.Heartbeat:Connect(function()
