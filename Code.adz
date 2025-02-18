@@ -34,7 +34,8 @@ local states = {
     antiKnockback = true,
     wallClimbing = false,
     antiVoidEnabled = true,
-    jumping = false
+    jumping = false,
+    infJumpEnabled = false
 }
 
 local function createESPBox(character)
@@ -217,7 +218,30 @@ end
 local function antiFall()
     RunService.Heartbeat:Connect(function()
         if humanoid.FloorMaterial == Enum.Material.Air and root.Velocity.Y < 0 then
-            root.Velocity = Vector3.new(root.Velocity.X, config.ANTI_FALL_HEIGHT, root.Velocity.Z)
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+            root.Velocity = Vector3.new(root.Velocity.X, 0, root.Velocity.Z)
+        else
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
+        end
+    end)
+end
+
+local function infiniteJump()
+    UserInputService.InputBegan:Connect(function(input)
+        if input.KeyCode == Enum.KeyCode.Space or input.UserInputType == Enum.UserInputType.Touch then
+            states.infJumpEnabled = true
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.KeyCode == Enum.KeyCode.Space or input.UserInputType == Enum.UserInputType.Touch then
+            states.infJumpEnabled = false
+        end
+    end)
+
+        RunService.Heartbeat:Connect(function()
+        if states.infJumpEnabled then
+            root.Velocity = Vector3.new(root.Velocity.X, config.WALL_CLIMB_FORCE, root.Velocity.Z)
         end
     end)
 end
@@ -230,3 +254,4 @@ antiKnockback()
 nuker()
 killAura()
 antiFall()
+infiniteJump()
