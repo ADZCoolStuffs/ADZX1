@@ -7,8 +7,8 @@ local Camera = Workspace.CurrentCamera
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
-local root = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("Humanoid", 10) or error("Humanoid not found")
+local root = character:WaitForChild("HumanoidRootPart", 10) or error("HumanoidRootPart not found")
 
 local config = {
     FLY_SPEED = 55,
@@ -23,7 +23,9 @@ local config = {
     PICKAXE_TIERS = {"wood_pickaxe", "stone_pickaxe", "iron_pickaxe", "diamond_pickaxe"},
     AXE_TIERS = {"wood_axe", "stone_axe", "iron_axe", "diamond_axe"},
     ARMOR_TIERS = {"leather_armor", "iron_armor", "diamond_armor", "emerald_armor"},
-    CIRCLE_COLOR = Color3.fromRGB(0, 170, 255)
+    CIRCLE_COLOR = Color3.fromRGB(0, 170, 255),
+    JUMP_VELOCITY = 50,
+    ANTI_FALL_VELOCITY = 0
 }
 
 local states = {
@@ -43,7 +45,7 @@ local function createESPBox(character)
     highlight.Name = "ESP"
     highlight.Adornee = character
     highlight.Size = character:GetExtentsSize()
-    highlight.Color3 = Color3.fromRGB(255, 255, 255)
+    highlight.Color3 = config.CIRCLE_COLOR
     highlight.Transparency = 0.5
     highlight.ZIndex = 10
     highlight.AlwaysOnTop = true
@@ -125,7 +127,7 @@ local function wallClimb()
     RunService.Heartbeat:Connect(function()
         local raycastParams = RaycastParams.new()
         raycastParams.FilterDescendantsInstances = {character}
-        local result = Workspace:Raycast(root.Position, root.CFrame.LookVector * 3, raycastParams)
+        local result = Workspace:Raycast(root.Position, root.CFrame.LookVector * config.REACH_DISTANCE, raycastParams)
         
         if result and result.Instance.CanCollide then
             root.Velocity = Vector3.new(root.Velocity.X, config.WALL_CLIMB_FORCE, root.Velocity.Z)
@@ -219,7 +221,7 @@ local function antiFall()
     RunService.Heartbeat:Connect(function()
         if humanoid.FloorMaterial == Enum.Material.Air and root.Velocity.Y < 0 then
             humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
-            root.Velocity = Vector3.new(root.Velocity.X, 0, root.Velocity.Z)
+            root.Velocity = Vector3.new(root.Velocity.X, config.ANTI_FALL_VELOCITY, root.Velocity.Z)
         else
             humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
         end
@@ -236,12 +238,11 @@ local function infiniteJump()
     UserInputService.InputEnded:Connect(function(input)
         if input.KeyCode == Enum.KeyCode.Space or input.UserInputType == Enum.UserInputType.Touch then
             states.infJumpEnabled = false
-        end
     end)
 
-        RunService.Heartbeat:Connect(function()
+    RunService.Heartbeat:Connect(function()
         if states.infJumpEnabled then
-            root.Velocity = Vector3.new(root.Velocity.X, config.WALL_CLIMB_FORCE, root.Velocity.Z)
+            root.Velocity = Vector3.new(root.Velocity.X, config.JUMP_VELOCITY, root.Velocity.Z)
         end
     end)
 end
