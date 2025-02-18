@@ -237,9 +237,7 @@ local function infiniteJump()
             states.infJumpEnabled = true
         end
     end)
-
-    UserInputService.InputEnded:Connect(function(input)
-        if input.KeyCode == Enum
+    
     UserInputService.InputEnded:Connect(function(input)
         if input.KeyCode == Enum.KeyCode.Space or input.UserInputType == Enum.UserInputType.Touch then
             states.infJumpEnabled = false
