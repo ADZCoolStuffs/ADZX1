@@ -28,7 +28,9 @@ local config = {
     ANTI_FALL_VELOCITY = 0,
     TOXIC_RESPONSES = {
         bedDestroyed = "LOL Good Luck Fixing Your Bed|ADZX2"
-    }
+    },
+    AUTO_SPRINT_SPEED = 16,
+    FOV = 120
 }
 
 local states = {
@@ -40,29 +42,40 @@ local states = {
     wallClimbing = false,
     antiVoidEnabled = true,
     jumping = false,
-    infJumpEnabled = false
+    infJumpEnabled = false,
+    autoSprint = true,
+    antiDeath = false
 }
 
-local function createESPBox(character)
-    local highlight = Instance.new("BoxHandleAdornment")
-    highlight.Name = "ESP"
-    highlight.Adornee = character
-    highlight.Size = character:GetExtentsSize()
-    highlight.Color3 = config.CIRCLE_COLOR
-    highlight.Transparency = 0.5
-    highlight.ZIndex = 10
-    highlight.AlwaysOnTop = true
-    highlight.Parent = character
+local function createESPNameTag(character)
+    local billboardGui = Instance.new("BillboardGui")
+    billboardGui.Name = "ESP"
+    billboardGui.Adornee = character:FindFirstChild("Head")
+    billboardGui.Size = UDim2.new(1, 0, 1, 0)
+    billboardGui.StudsOffset = Vector3.new(0, 2, 0)
+    billboardGui.AlwaysOnTop = true
+    
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Parent = billboardGui
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = character.Parent.Name
+    nameLabel.TextColor3 = config.CIRCLE_COLOR
+    nameLabel.TextStrokeTransparency = 0
+    nameLabel.Size = UDim2.new(1, 0, 1, 0)
+    nameLabel.Font = Enum.Font.SourceSansBold
+    nameLabel.TextScaled = true
+    
+    billboardGui.Parent = character:FindFirstChild("Head")
 end
 
 local function initializeESP()
     for _, enemy in ipairs(Players:GetPlayers()) do
         if enemy ~= player and enemy.Team ~= player.Team then
             enemy.CharacterAdded:Connect(function(character)
-                createESPBox(character)
+                createESPNameTag(character)
             end)
             if enemy.Character then
-                createESPBox(enemy.Character)
+                createESPNameTag(enemy.Character)
             end
         end
     end
@@ -70,7 +83,7 @@ local function initializeESP()
     Players.PlayerAdded:Connect(function(newPlayer)
         if newPlayer.Team ~= player.Team then
             newPlayer.CharacterAdded:Connect(function(character)
-                createESPBox(character)
+                createESPNameTag(character)
             end)
         end
     end)
@@ -173,30 +186,18 @@ local function nuker()
             states.nukerActive = true
             for _, target in ipairs(Workspace:GetPartsInPart(root, config.NUKE_RADIUS)) do
                 local parent = target.Parent
-                if parent then
-                    if parent.Name == "bed" then
-                        local bestPickaxe = getBestTool("pickaxe")
-                        if bestPickaxe then
-                            humanoid:EquipTool(bestPickaxe)
-                            for _ = 1, 25 do
-                                bestPickaxe:Activate()
-                                task.wait(0.1)
-                            end
-                        end
-                        ReplicatedStorage.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(
-                            config.TOXIC_RESPONSES.bedDestroyed,
-                            "All"
-                        )
-                    elseif parent:FindFirstChild("Humanoid") and parent ~= character then
-                        local bestAxe = getBestTool("axe")
-                        if bestAxe then
-                            humanoid:EquipTool(bestAxe)
-                            for _ = 1, 25 do
-                                bestAxe:Activate()
-                                task.wait(0.1)
-                            end
+                if parent and parent.Name == "bed" then
+                    local bestPickaxe = getBestTool("pickaxe")
+                    if bestPickaxe then
+                        for _ = 1, 25 do
+                            bestPickaxe:Activate()
+                            task.wait(0.1)
                         end
                     end
+                    ReplicatedStorage.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(
+                        config.TOXIC_RESPONSES.bedDestroyed,
+                        "All"
+                    )
                 end
             end
             states.nukerActive = false
@@ -233,11 +234,13 @@ end
 
 local function infiniteJump()
     UserInputService.InputBegan:Connect(function(input)
+        if input.KeyCode == Enum.KeyCode.Space
+    UserInputService.InputBegan:Connect(function(input)
         if input.KeyCode == Enum.KeyCode.Space or input.UserInputType == Enum.UserInputType.Touch then
             states.infJumpEnabled = true
         end
     end)
-    
+
     UserInputService.InputEnded:Connect(function(input)
         if input.KeyCode == Enum.KeyCode.Space or input.UserInputType == Enum.UserInputType.Touch then
             states.infJumpEnabled = false
@@ -251,6 +254,61 @@ local function infiniteJump()
     end)
 end
 
+local function autoSprint()
+    RunService.Heartbeat:Connect(function()
+        if states.autoSprint then
+            humanoid.WalkSpeed = config.AUTO_SPRINT_SPEED
+        end
+    end)
+end
+
+local function antiSuffocation()
+    RunService.Heartbeat:Connect(function()
+        if root.Position.Y < config.SAFE_GROUND_THRESHOLD and root.Velocity.Y == 0 then
+            root.CFrame = root.CFrame + Vector3.new(0, config.ANTI_FALL_HEIGHT, 0)
+        end
+    end)
+end
+
+local function antiDeath()
+    RunService.Heartbeat:Connect(function()
+        if humanoid.Health <= 35 and not states.antiDeath then
+            states.antiDeath = true
+            states.lastSafePosition = root.Position
+            root.CFrame = CFrame.new(root.Position.X, 50000, root.Position.Z)
+            Camera.CFrame = CFrame.new(root.Position) -- Maintain camera POV at ground level
+        elseif humanoid.Health > 35 and states.antiDeath then
+            states.antiDeath = false
+            root.CFrame = CFrame.new(states.lastSafePosition)
+        end
+    end)
+end
+
+local function setFOV()
+    Camera.FieldOfView = config.FOV
+end
+
+local function onPlayerRespawn()
+    player.CharacterAdded:Connect(function(newCharacter)
+        character = newCharacter
+        humanoid = character:WaitForChild("Humanoid", 10) or error("Humanoid not found")
+        root = character:WaitForChild("HumanoidRootPart", 10) or error("HumanoidRootPart not found")
+        initializeESP()
+        antiHit()
+        antiVoid()
+        wallClimb()
+        antiKnockback()
+        nuker()
+        killAura()
+        antiFall()
+        infiniteJump()
+        autoSprint()
+        antiSuffocation()
+        antiDeath()
+        setFOV()
+    end)
+end
+
 initializeESP()
 antiHit()
 antiVoid()
@@ -260,3 +318,27 @@ nuker()
 killAura()
 antiFall()
 infiniteJump()
+autoSprint()
+antiSuffocation()
+antiDeath()
+setFOV()
+onPlayerRespawn()
+
+player.CharacterAdded:Connect(function(newCharacter)
+    character = newCharacter
+    humanoid = character:WaitForChild("Humanoid", 10) or error("Humanoid not found")
+    root = character:WaitForChild("HumanoidRootPart", 10) or error("HumanoidRootPart not found")
+    initializeESP()
+    antiHit()
+    antiVoid()
+    wallClimb()
+    antiKnockback()
+    nuker()
+    killAura()
+    antiFall()
+    infiniteJump()
+    autoSprint()
+    antiSuffocation()
+    antiDeath()
+    setFOV()
+end)
