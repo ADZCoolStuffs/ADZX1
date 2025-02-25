@@ -78,11 +78,23 @@ local function createESP(character)
     healthLabel.Font = Enum.Font.SourceSansBold
     healthLabel.TextScaled = true
 
+    local equippedLabel = Instance.new("TextLabel")
+    equippedLabel.Parent = billboardGui
+    equippedLabel.BackgroundTransparency = 1
+    equippedLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+    equippedLabel.TextStrokeTransparency = 0
+    equippedLabel.Size = UDim2.new(1, 0, 1, 0)
+    equippedLabel.Position = UDim2.new(0, 0, 2, 0)
+    equippedLabel.Font = Enum.Font.SourceSansBold
+    equippedLabel.TextScaled = true
+
     RunService.Heartbeat:Connect(function()
         local humanoid = character:FindFirstChildOfClass("Humanoid")
         if humanoid then
             healthLabel.Text = "Health: " .. math.floor(humanoid.Health)
         end
+        local tool = character:FindFirstChildWhichIsA("Tool")
+        equippedLabel.Text = tool and tool.Name or "No Tool"
     end)
 
     billboardGui.Parent = head
@@ -190,7 +202,7 @@ local function antiKnockback()
     RunService.Heartbeat:Connect(function()
         if states.antiKnockback then
             local velocity = root.Velocity
-            velocity = velocity * 0.1 
+            velocity = velocity * 0.1
             root.Velocity = velocity
         end
     end)
@@ -220,7 +232,6 @@ local function nuker()
                 local parent = target.Parent
                 if parent and parent.Name == "bed" then
                     local bestPickaxe = getBestTool("pickaxe")
-                    if bestPickaxe then
                     if bestPickaxe then
                         humanoid:EquipTool(bestPickaxe)
                         for _ = 1, 25 do
@@ -308,7 +319,7 @@ local function antiDeath()
             states.antiDeath = true
             states.lastSafePosition = root.Position
             root.CFrame = CFrame.new(root.Position.X, 50000, root.Position.Z)
-            Camera.CFrame = CFrame.new(root.Position) -- Maintain camera POV at ground level
+            Camera.CFrame = CFrame.new(root.Position)
         elseif humanoid.Health > 35 and states.antiDeath then
             states.antiDeath = false
             root.CFrame = CFrame.new(states.lastSafePosition)
