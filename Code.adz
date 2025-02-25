@@ -47,11 +47,14 @@ local states = {
     antiDeath = false
 }
 
-local function createESPNameTag(character)
+local function createESP(character)
+    local head = character:FindFirstChild("Head")
+    if not head then return end
+
     local billboardGui = Instance.new("BillboardGui")
     billboardGui.Name = "ESP"
-    billboardGui.Adornee = character:FindFirstChild("Head")
-    billboardGui.Size = UDim2.new(1, 0, 1, 0)
+    billboardGui.Adornee = head
+    billboardGui.Size = UDim2.new(4, 0, 2, 0)
     billboardGui.StudsOffset = Vector3.new(0, 2, 0)
     billboardGui.AlwaysOnTop = true
     
@@ -59,23 +62,40 @@ local function createESPNameTag(character)
     nameLabel.Parent = billboardGui
     nameLabel.BackgroundTransparency = 1
     nameLabel.Text = character.Parent.Name
-    nameLabel.TextColor3 = config.CIRCLE_COLOR
+    nameLabel.TextColor3 = Color3.fromRGB(0, 170, 255)
     nameLabel.TextStrokeTransparency = 0
     nameLabel.Size = UDim2.new(1, 0, 1, 0)
     nameLabel.Font = Enum.Font.SourceSansBold
     nameLabel.TextScaled = true
-    
-    billboardGui.Parent = character:FindFirstChild("Head")
+
+    local healthLabel = Instance.new("TextLabel")
+    healthLabel.Parent = billboardGui
+    healthLabel.BackgroundTransparency = 1
+    healthLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+    healthLabel.TextStrokeTransparency = 0
+    healthLabel.Size = UDim2.new(1, 0, 1, 0)
+    healthLabel.Position = UDim2.new(0, 0, 1, 0)
+    healthLabel.Font = Enum.Font.SourceSansBold
+    healthLabel.TextScaled = true
+
+    RunService.Heartbeat:Connect(function()
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            healthLabel.Text = "Health: " .. math.floor(humanoid.Health)
+        end
+    end)
+
+    billboardGui.Parent = head
 end
 
 local function initializeESP()
     for _, enemy in ipairs(Players:GetPlayers()) do
         if enemy ~= player and enemy.Team ~= player.Team then
             enemy.CharacterAdded:Connect(function(character)
-                createESPNameTag(character)
+                createESP(character)
             end)
             if enemy.Character then
-                createESPNameTag(enemy.Character)
+                createESP(enemy.Character)
             end
         end
     end
@@ -83,7 +103,7 @@ local function initializeESP()
     Players.PlayerAdded:Connect(function(newPlayer)
         if newPlayer.Team ~= player.Team then
             newPlayer.CharacterAdded:Connect(function(character)
-                createESPNameTag(character)
+                createESP(character)
             end)
         end
     end)
@@ -92,7 +112,17 @@ end
 local function antiHit()
     local function findSafePosition()
         local offset = Vector3.new(0, config.ANTI_HIT_TP_HEIGHT, 0)
-        return root.Position + offset
+        local potentialPosition = root.Position + offset
+        
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterDescendantsInstances = {character}
+        local result = Workspace:Raycast(potentialPosition, Vector3.new(0, -config.ANTI_HIT_TP_HEIGHT, 0), raycastParams)
+
+        if result and result.Instance.CanCollide then
+            return potentialPosition
+        else
+            return root.Position + Vector3.new(0, config.ANTI_HIT_TP_HEIGHT * 2, 0)
+        end
     end
 
     RunService.Heartbeat:Connect(function()
@@ -159,7 +189,9 @@ end
 local function antiKnockback()
     RunService.Heartbeat:Connect(function()
         if states.antiKnockback then
-            root.Velocity = Vector3.new(root.Velocity.X * 0.35, root.Velocity.Y, root.Velocity.Z * 0.35)
+            local velocity = root.Velocity
+            velocity = velocity * 0.1 
+            root.Velocity = velocity
         end
     end)
 end
@@ -189,6 +221,8 @@ local function nuker()
                 if parent and parent.Name == "bed" then
                     local bestPickaxe = getBestTool("pickaxe")
                     if bestPickaxe then
+                    if bestPickaxe then
+                        humanoid:EquipTool(bestPickaxe)
                         for _ = 1, 25 do
                             bestPickaxe:Activate()
                             task.wait(0.1)
@@ -233,8 +267,6 @@ local function antiFall()
 end
 
 local function infiniteJump()
-    UserInputService.InputBegan:Connect(function(input)
-        if input.KeyCode == Enum.KeyCode.Space
     UserInputService.InputBegan:Connect(function(input)
         if input.KeyCode == Enum.KeyCode.Space or input.UserInputType == Enum.UserInputType.Touch then
             states.infJumpEnabled = true
