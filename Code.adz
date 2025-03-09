@@ -3,7 +3,7 @@ local function getService(name)
     if success then
         return service
     else
-        warn(name .. " is not available.")
+        warn(name.." is not available.")
         return nil
     end
 end
@@ -16,105 +16,316 @@ local RunService = getService("RunService")
 local Camera = Workspace.CurrentCamera
 
 local player = Players.LocalPlayer
-local character, humanoid, root
-local config, states
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid", 10)
+local root = character:WaitForChild("HumanoidRootPart", 10)
+
+local config = {
+    DETECTION_RADIUS = 6,
+    ORBIT_RADIUS = 4,
+    ORBIT_HEIGHT = 6,
+    ORBIT_SPEED = 2,
+    DESCENT_INTERVAL = 2,
+    DESCENT_DELAY = 0.1,
+    SAFE_HP_THRESHOLD = 35,
+    SAFE_RADIUS = 6,
+    FLY_SPEED = 55,
+    AUTO_SPRINT_SPEED = 16,
+    REACH_DISTANCE = 50,
+    WALL_CLIMB_FORCE = 65,
+    NUKE_RADIUS = 18,
+    TOXIC_RESPONSES = { bedDestroyed = "LOL Good Luck Fixing Your Bed|ADZX2" },
+    FOV = 120,
+    JUMP_VELOCITY = 50
+}
+
+local states = {
+    currentTarget = nil,
+    orbitAngle = 0,
+    descentTimer = 0,
+    lastSafePosition = root.Position,
+    initialized = false
+}
+
+local function debugLog(msg)
+    -- Uncomment the next line to enable debug logging:
+    -- print("[DEBUG]: " .. msg)
+end
 
 local function initializeConfig()
-    config = {
-        FLY_SPEED = 55,
-        REACH_DISTANCE = 50,
-        ANTI_FALL_HEIGHT = 4,
-        WALL_CLIMB_FORCE = 65,
-        ANTI_VOID_CHECK_DISTANCE = 500,
-        SAFE_GROUND_THRESHOLD = 4,
-        ANTI_HIT_TP_HEIGHT = 1000,
-        NUKE_RADIUS = 18,
-        SWORD_TIERS = {"wood_sword", "stone_sword", "iron_sword", "diamond_sword", "emerald_sword"},
-        PICKAXE_TIERS = {"wood_pickaxe", "stone_pickaxe", "iron_pickaxe", "diamond_pickaxe"},
-        AXE_TIERS = {"wood_axe", "stone_axe", "iron_axe", "diamond_axe"},
-        ARMOR_TIERS = {"leather_armor", "iron_armor", "diamond_armor", "emerald_armor"},
-        CIRCLE_COLOR = Color3.fromRGB(0, 170, 255),
-        JUMP_VELOCITY = 50,
-        ANTI_FALL_VELOCITY = 0,
-        TOXIC_RESPONSES = {
-            bedDestroyed = "LOL Good Luck Fixing Your Bed|ADZX2"
-        },
-        AUTO_SPRINT_SPEED = 16,
-        FOV = 120
+    config.DETECTION_RADIUS = 6
+    config.ORBIT_RADIUS = 4
+    config.ORBIT_HEIGHT = 6
+    config.ORBIT_SPEED = 2
+    config.DESCENT_INTERVAL = 2
+    config.DESCENT_DELAY = 0.1
+    config.SAFE_HP_THRESHOLD = 35
+    config.SAFE_RADIUS = 6
+    config.FLY_SPEED = 55
+    config.AUTO_SPRINT_SPEED = 16
+    config.REACH_DISTANCE = 50
+    config.WALL_CLIMB_FORCE = 65
+    config.NUKE_RADIUS = 18
+    config.FOV = 120
+    config.JUMP_VELOCITY = 50
+    states.lastSafePosition = root.Position
+end
+
+local function getSafeLocation()
+    debugLog("Calculating safe location.")
+    local candidateOffsets = {
+        Vector3.new(50, 0, 0),
+        Vector3.new(-50, 0, 0),
+        Vector3.new(0, 0, 50),
+        Vector3.new(0, 0, -50),
+        Vector3.new(50, 0, 50),
+        Vector3.new(-50, 0, -50)
     }
-    states = {
-        flying = false,
-        antiHitActive = false,
-        lastSafePosition = root.Position,
-        nukerActive = false,
-        antiKnockback = true,
-        wallClimbing = false,
-        antiVoidEnabled = true,
-        jumping = false,
-        infJumpEnabled = false,
-        autoSprint = true,
-        antiDeath = false
-    }
+    for _, offset in ipairs(candidateOffsets) do
+        local candidate = root.Position + offset
+        local safe = true
+        for _, enemy in ipairs(Players:GetPlayers()) do
+            if enemy ~= player and enemy.Character and enemy.Character:FindFirstChild("HumanoidRootPart") then
+                local d = (enemy.Character.HumanoidRootPart.Position - candidate).Magnitude
+                if d < config.SAFE_RADIUS then
+                    safe = false
+                    break
+                end
+            end
+        end
+        if safe then
+            debugLog("Safe location found: " .. tostring(candidate))
+            return candidate
+        end
+    end
+    debugLog("No safe location found; defaulting to current position.")
+    return root.Position
+end
+
+local function createConfigUI()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "ConfigUI"
+    screenGui.Parent = player:WaitForChild("PlayerGui")
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 300, 0, 400)
+    frame.Position = UDim2.new(0, 50, 0, 50)
+    frame.BackgroundColor3 = Color3.new(0.1, 0.1, 0.1)
+    frame.Parent = screenGui
+
+    local title = Instance.new("TextLabel")
+    title.Text = "Configuration Menu"
+    title.Size = UDim2.new(1, 0, 0, 50)
+    title.BackgroundTransparency = 1
+    title.Font = Enum.Font.SourceSansBold
+    title.TextScaled = true
+    title.TextColor3 = Color3.new(1, 1, 1)
+    title.Parent = frame
+
+    local detectionRadiusLabel = Instance.new("TextLabel")
+    detectionRadiusLabel.Text = "Detection Radius: " .. tostring(config.DETECTION_RADIUS)
+    detectionRadiusLabel.Size = UDim2.new(1, 0, 0, 30)
+    detectionRadiusLabel.Position = UDim2.new(0, 0, 0, 60)
+    detectionRadiusLabel.BackgroundTransparency = 1
+    detectionRadiusLabel.TextColor3 = Color3.new(1, 1, 1)
+    detectionRadiusLabel.TextScaled = true
+    detectionRadiusLabel.Parent = frame
+
+    local orbitRadiusLabel = Instance.new("TextLabel")
+    orbitRadiusLabel.Text = "Orbit Radius: " .. tostring(config.ORBIT_RADIUS)
+    orbitRadiusLabel.Size = UDim2.new(1, 0, 0, 30)
+    orbitRadiusLabel.Position = UDim2.new(0, 0, 0, 100)
+    orbitRadiusLabel.BackgroundTransparency = 1
+    orbitRadiusLabel.TextColor3 = Color3.new(1, 1, 1)
+    orbitRadiusLabel.TextScaled = true
+    orbitRadiusLabel.Parent = frame
+
+    local orbitHeightLabel = Instance.new("TextLabel")
+    orbitHeightLabel.Text = "Orbit Height: " .. tostring(config.ORBIT_HEIGHT)
+    orbitHeightLabel.Size = UDim2.new(1, 0, 0, 30)
+    orbitHeightLabel.Position = UDim2.new(0, 0, 0, 140)
+    orbitHeightLabel.BackgroundTransparency = 1
+    orbitHeightLabel.TextColor3 = Color3.new(1, 1, 1)
+    orbitHeightLabel.TextScaled = true
+    orbitHeightLabel.Parent = frame
+
+    local descentIntervalLabel = Instance.new("TextLabel")
+    descentIntervalLabel.Text = "Descent Interval: " .. tostring(config.DESCENT_INTERVAL)
+    descentIntervalLabel.Size = UDim2.new(1, 0, 0, 30)
+    descentIntervalLabel.Position = UDim2.new(0, 0, 0, 180)
+    descentIntervalLabel.BackgroundTransparency = 1
+    descentIntervalLabel.TextColor3 = Color3.new(1, 1, 1)
+    descentIntervalLabel.TextScaled = true
+    descentIntervalLabel.Parent = frame
+
+    local safeHPLabel = Instance.new("TextLabel")
+    safeHPLabel.Text = "Safe HP Threshold: " .. tostring(config.SAFE_HP_THRESHOLD)
+    safeHPLabel.Size = UDim2.new(1, 0, 0, 30)
+    safeHPLabel.Position = UDim2.new(0, 0, 0, 220)
+    safeHPLabel.BackgroundTransparency = 1
+    safeHPLabel.TextColor3 = Color3.new(1, 1, 1)
+    safeHPLabel.TextScaled = true
+    safeHPLabel.Parent = frame
+
+    local autoSprintLabel = Instance.new("TextLabel")
+    autoSprintLabel.Text = "Auto Sprint Speed: " .. tostring(config.AUTO_SPRINT_SPEED)
+    autoSprintLabel.Size = UDim2.new(1, 0, 0, 30)
+    autoSprintLabel.Position = UDim2.new(0, 0, 0, 260)
+    autoSprintLabel.BackgroundTransparency = 1
+    autoSprintLabel.TextColor3 = Color3.new(1, 1, 1)
+    autoSprintLabel.TextScaled = true
+    autoSprintLabel.Parent = frame
+
+    local fovLabel = Instance.new("TextLabel")
+    fovLabel.Text = "FOV: " .. tostring(config.FOV)
+    fovLabel.Size = UDim2.new(1, 0, 0, 30)
+    fovLabel.Position = UDim2.new(0, 0, 0, 300)
+    fovLabel.BackgroundTransparency = 1
+    fovLabel.TextColor3 = Color3.new(1, 1, 1)
+    fovLabel.TextScaled = true
+    fovLabel.Parent = frame
+
+    local closeButton = Instance.new("TextButton")
+    closeButton.Text = "Close"
+    closeButton.Size = UDim2.new(0, 100, 0, 40)
+    closeButton.Position = UDim2.new(0, 100, 0, 350)
+    closeButton.BackgroundColor3 = Color3.new(1, 0, 0)
+    closeButton.TextScaled = true
+    closeButton.Parent = frame
+
+    closeButton.MouseButton1Click:Connect(function()
+        screenGui:Destroy()
+    end)
+end
+
+local function createMemoryBypassModule()
+    local module = {}
+    function module.Obfuscate(str)
+        local encoded = {}
+        for i = 1, #str do
+            table.insert(encoded, string.char(string.byte(str, i) + 1))
+        end
+        return table.concat(encoded)
+    end
+    function module.Deobfuscate(str)
+        local decoded = {}
+        for i = 1, #str do
+            table.insert(decoded, string.char(string.byte(str, i) - 1))
+        end
+        return table.concat(decoded)
+    end
+    function module.SimulateMemoryModification()
+        local dummy = {}
+        for i = 1, 50 do
+            dummy[i] = math.random()
+        end
+        return dummy
+    end
+    for i = 1, 100 do
+        local dummyVar = module.SimulateMemoryModification()
+        dummyVar[i] = dummyVar[i] or 0
+    end
+    return module
+end
+
+local MemoryBypass = createMemoryBypassModule()
+
+local function getServiceWrapper(name)
+    local s = getService(name)
+    if not s then s = MemoryBypass.Deobfuscate(MemoryBypass.Obfuscate(name)) end
+    return s
+end
+
+local function getUserConfiguration()
+    createConfigUI()
+end
+
+local function getPerformanceMetrics()
+    local fps = 1/RunService.RenderStepped:Wait()
+    debugLog("Current FPS: " .. tostring(math.floor(fps)))
+end
+
+local function advancedAntiHit()
+    RunService.RenderStepped:Connect(function(dt)
+        states.descentTimer = states.descentTimer + dt
+        local lowestHP = math.huge
+        local chosenTarget = nil
+        for _, enemy in ipairs(Players:GetPlayers()) do
+            if enemy ~= player and enemy.Character and enemy.Character:FindFirstChild("HumanoidRootPart") and enemy.Character:FindFirstChild("Humanoid") then
+                local d = (enemy.Character.HumanoidRootPart.Position - root.Position).Magnitude
+                if d <= config.DETECTION_RADIUS then
+                    local enemyHP = enemy.Character.Humanoid.Health
+                    if enemyHP < lowestHP then
+                        lowestHP = enemyHP
+                        chosenTarget = enemy
+                    end
+                end
+            end
+        end
+        if chosenTarget then
+            states.currentTarget = chosenTarget
+            debugLog("Target acquired: " .. tostring(chosenTarget.Name) .. ", HP: " .. tostring(lowestHP))
+        else
+            states.currentTarget = nil
+            debugLog("No target detected")
+        end
+        if states.currentTarget and states.currentTarget.Character and states.currentTarget.Character:FindFirstChild("HumanoidRootPart") then
+            local targetHRP = states.currentTarget.Character.HumanoidRootPart
+            local targetPos = targetHRP.Position
+            if states.descentTimer >= config.DESCENT_INTERVAL then
+                root.CFrame = CFrame.new(targetPos.X, targetPos.Y, targetPos.Z)
+                wait(config.DESCENT_DELAY)
+                root.CFrame = CFrame.new(targetPos.X, targetPos.Y + config.ORBIT_HEIGHT, targetPos.Z)
+                states.descentTimer = 0
+            else
+                states.orbitAngle = states.orbitAngle + config.ORBIT_SPEED * dt
+                local orbitX = targetPos.X + config.ORBIT_RADIUS * math.cos(states.orbitAngle)
+                local orbitZ = targetPos.Z + config.ORBIT_RADIUS * math.sin(states.orbitAngle)
+                local orbitY = targetPos.Y + config.ORBIT_HEIGHT
+                root.CFrame = CFrame.new(orbitX, orbitY, orbitZ)
+            end
+        end
+        if humanoid.Health < config.SAFE_HP_THRESHOLD then
+            local safePos = getSafeLocation()
+            root.CFrame = CFrame.new(safePos)
+            debugLog("Low HP! Teleporting to safe location: " .. tostring(safePos))
+        end
+    end)
 end
 
 local function createESP(character)
     local head = character:FindFirstChild("Head")
     if not head then return end
-    local billboardGui = Instance.new("BillboardGui")
-    billboardGui.Name = "ESP"
-    billboardGui.Adornee = head
-    billboardGui.Size = UDim2.new(4, 0, 2, 0)
-    billboardGui.StudsOffset = Vector3.new(0, 2, 0)
-    billboardGui.AlwaysOnTop = true
-    local nameLabel = Instance.new("TextLabel")
-    nameLabel.Parent = billboardGui
-    nameLabel.BackgroundTransparency = 1
-    nameLabel.Text = character.Parent.Name
-    nameLabel.TextColor3 = Color3.fromRGB(0, 170, 255)
-    nameLabel.TextStrokeTransparency = 0
-    nameLabel.Size = UDim2.new(1, 0, 1, 0)
-    nameLabel.Font = Enum.Font.SourceSansBold
-    nameLabel.TextScaled = true
-    local healthLabel = Instance.new("TextLabel")
-    healthLabel.Parent = billboardGui
-    healthLabel.BackgroundTransparency = 1
-    healthLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
-    healthLabel.TextStrokeTransparency = 0
-    healthLabel.Size = UDim2.new(1, 0, 1, 0)
-    healthLabel.Position = UDim2.new(0, 0, 1, 0)
-    healthLabel.Font = Enum.Font.SourceSansBold
-    healthLabel.TextScaled = true
-    local equippedLabel = Instance.new("TextLabel")
-    equippedLabel.Parent = billboardGui
-    equippedLabel.BackgroundTransparency = 1
-    equippedLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
-    equippedLabel.TextStrokeTransparency = 0
-    equippedLabel.Size = UDim2.new(1, 0, 1, 0)
-    equippedLabel.Position = UDim2.new(0, 0, 2, 0)
-    equippedLabel.Font = Enum.Font.SourceSansBold
-    equippedLabel.TextScaled = true
-    local distanceLabel = Instance.new("TextLabel")
-    distanceLabel.Parent = billboardGui
-    distanceLabel.BackgroundTransparency = 1
-    distanceLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
-    distanceLabel.TextStrokeTransparency = 0
-    distanceLabel.Size = UDim2.new(1, 0, 1, 0)
-    distanceLabel.Position = UDim2.new(0, 0, 3, 0)
-    distanceLabel.Font = Enum.Font.SourceSansBold
-    distanceLabel.TextScaled = true
+    local bg = Instance.new("BillboardGui")
+    bg.Name = "ESP"
+    bg.Adornee = head
+    bg.Size = UDim2.new(4, 0, 2, 0)
+    bg.StudsOffset = Vector3.new(0, 2, 0)
+    bg.AlwaysOnTop = true
+    local nl = Instance.new("TextLabel")
+    nl.Parent = bg
+    nl.BackgroundTransparency = 1
+    nl.Text = character.Parent.Name
+    nl.TextColor3 = Color3.fromRGB(0,170,255)
+    nl.TextStrokeTransparency = 0
+    nl.Size = UDim2.new(1,0,1,0)
+    nl.Font = Enum.Font.SourceSansBold
+    nl.TextScaled = true
+    local hl = Instance.new("TextLabel")
+    hl.Parent = bg
+    hl.BackgroundTransparency = 1
+    hl.TextColor3 = Color3.fromRGB(255,0,0)
+    hl.TextStrokeTransparency = 0
+    hl.Size = UDim2.new(1,0,1,0)
+    hl.Position = UDim2.new(0,0,1,0)
+    hl.Font = Enum.Font.SourceSansBold
+    hl.TextScaled = true
     RunService.RenderStepped:Connect(function()
         local hum = character:FindFirstChildOfClass("Humanoid")
         if hum then
-            healthLabel.Text = "Health: " .. math.floor(hum.Health)
-        end
-        local tool = character:FindFirstChildWhichIsA("Tool")
-        equippedLabel.Text = tool and tool.Name or "No Tool"
-        if character:FindFirstChild("HumanoidRootPart") and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-            local distance = (character.HumanoidRootPart.Position - player.Character.HumanoidRootPart.Position).magnitude
-            distanceLabel.Text = "Distance: " .. math.floor(distance)
+            hl.Text = "Health: " .. math.floor(hum.Health)
         end
     end)
-    billboardGui.Parent = head
+    bg.Parent = head
 end
 
 local function initializeESP()
@@ -137,131 +348,83 @@ local function initializeESP()
     end)
 end
 
-local function safePositionCheck()
-    local offset = Vector3.new(0, config.ANTI_HIT_TP_HEIGHT, 0)
-    local potentialPosition = root.Position + offset
-    local rp = RaycastParams.new()
-    rp.FilterDescendantsInstances = {character}
-    local result = Workspace:Raycast(potentialPosition, Vector3.new(0, -config.ANTI_HIT_TP_HEIGHT, 0), rp)
-    if result and result.Instance.CanCollide then
-        return potentialPosition
-    else
-        return root.Position + Vector3.new(0, config.ANTI_HIT_TP_HEIGHT * 2, 0)
-    end
-end
-
-local function antiHit()
+local function wallClimb()
     RunService.RenderStepped:Connect(function()
-        for _, target in ipairs(Players:GetPlayers()) do
-            if target ~= player and target.Team ~= player.Team then
-                local tRoot = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-                if tRoot and (root.Position - tRoot.Position).Magnitude < config.NUKE_RADIUS then
-                    local safePosition = safePositionCheck()
-                    local originalCameraCFrame = Camera.CFrame
-                    root.CFrame = CFrame.new(safePosition)
-                    task.wait(0.1)
-                    root.CFrame = CFrame.new(root.Position + Vector3.new(0, config.ANTI_HIT_TP_HEIGHT, 0))
-                    Camera.CFrame = originalCameraCFrame
-                    break
-                end
-            end
+        local rp = RaycastParams.new()
+        rp.FilterDescendantsInstances = {character}
+        local res = Workspace:Raycast(root.Position, root.CFrame.LookVector * config.REACH_DISTANCE, rp)
+        if res and res.Instance.CanCollide then
+            root.Velocity = Vector3.new(root.Velocity.X, config.WALL_CLIMB_FORCE, root.Velocity.Z)
         end
     end)
 end
 
 local function antiVoid()
     RunService.RenderStepped:Connect(function()
-        if states.antiVoidEnabled and not states.jumping then
-            local rp = RaycastParams.new()
-            rp.FilterDescendantsInstances = {character}
-            local result = Workspace:Raycast(root.Position, Vector3.new(0, -config.ANTI_VOID_CHECK_DISTANCE, 0), rp)
-            if not result then
-                root.CFrame = CFrame.new(states.lastSafePosition)
-            else
-                states.lastSafePosition = root.Position
-            end
+        local rp = RaycastParams.new()
+        rp.FilterDescendantsInstances = {character}
+        local res = Workspace:Raycast(root.Position, Vector3.new(0,-config.SAFE_RADIUS,0), rp)
+        if not res then
+            root.CFrame = CFrame.new(states.lastSafePosition)
+        else
+            states.lastSafePosition = root.Position
         end
-    end)
-    UserInputService.JumpRequest:Connect(function()
-        states.jumping = true
-        states.antiVoidEnabled = false
-        task.wait(1)
-        states.jumping = false
-        states.antiVoidEnabled = true
     end)
 end
 
-local function wallClimb()
+local function infiniteJump()
+    UserInputService.InputBegan:Connect(function(input)
+        if input.KeyCode == Enum.KeyCode.Space then
+            root.Velocity = Vector3.new(root.Velocity.X, config.JUMP_VELOCITY, root.Velocity.Z)
+        end
+    end)
+end
+
+local function autoSprint()
     RunService.RenderStepped:Connect(function()
-        local rp = RaycastParams.new()
-        rp.FilterDescendantsInstances = {character}
-        local result = Workspace:Raycast(root.Position, root.CFrame.LookVector * config.REACH_DISTANCE, rp)
-        if result and result.Instance.CanCollide then
-            root.Velocity = Vector3.new(root.Velocity.X, config.WALL_CLIMB_FORCE, root.Velocity.Z)
-            states.wallClimbing = true
-            task.wait(0.05)
-            root.Velocity = Vector3.new(root.Velocity.X, 0, root.Velocity.Z)
-        else
-            states.wallClimbing = false
+        if humanoid.MoveDirection.Magnitude > 0 then
+            humanoid.WalkSpeed = config.AUTO_SPRINT_SPEED
+        end
+    end)
+end
+
+local function antiSuffocation()
+    RunService.RenderStepped:Connect(function()
+        if root.Position.Y < config.SAFE_RADIUS and root.Velocity.Y == 0 then
+            root.CFrame = root.CFrame + Vector3.new(0,2,0)
         end
     end)
 end
 
 local function antiKnockback()
     RunService.RenderStepped:Connect(function()
-        if states.antiKnockback then
-            local velocity = root.Velocity
-            velocity = velocity * 0.1
-            root.Velocity = velocity
-        end
-    end)
-end
-
-local function getBestTool(toolType)
-    local bestTool = nil
-    local highestTier = 0
-    local toolTiers = (toolType == "pickaxe") and config.PICKAXE_TIERS or config.AXE_TIERS
-    for i, toolName in ipairs(toolTiers) do
-        local tool = player.Backpack:FindFirstChild(toolName)
-        if tool and i > highestTier then
-            highestTier = i
-            bestTool = tool
-        end
-    end
-    return bestTool
-end
-
-local function nuker()
-    RunService.RenderStepped:Connect(function()
-        if not states.nukerActive then
-            states.nukerActive = true
-            for _, target in ipairs(Workspace:GetPartsInPart(root, config.NUKE_RADIUS)) do
-                local par = target.Parent
-                if par and par.Name == "bed" then
-                    local bestPickaxe = getBestTool("pickaxe")
-                    if bestPickaxe then
-                        humanoid:EquipTool(bestPickaxe)
-                        for _ = 1, 25 do
-                            bestPickaxe:Activate()
-                            task.wait(0.1)
-                        end
-                    end
-                    ReplicatedStorage.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(config.TOXIC_RESPONSES.bedDestroyed, "All")
-                end
-            end
-            states.nukerActive = false
-        end
+        root.Velocity = root.Velocity * 0.1
     end)
 end
 
 local function killAura()
     RunService.RenderStepped:Connect(function()
-        local tool = character:FindFirstChildWhichIsA("Tool")
-        if tool and table.find(config.SWORD_TIERS, tool.Name) then
-            for _, target in ipairs(Players:GetPlayers()) do
-                if target ~= player and target.Team ~= player.Team then
-                    local tRoot = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-                    if tRoot and (root.Position - tRoot.Position).Magnitude <= config.REACH_DISTANCE then
+        for _, enemy in ipairs(Players:GetPlayers()) do
+            if enemy ~= player and enemy.Character and enemy.Character:FindFirstChild("HumanoidRootPart") then
+                local d = (enemy.Character.HumanoidRootPart.Position - root.Position).Magnitude
+                if d <= 3 then
+                    local tool = character:FindFirstChildWhichIsA("Tool")
+                    if tool then tool:Activate() end
+                end
+            end
+        end
+    end)
+end
+
+local function nuker()
+    RunService.RenderStepped:Connect(function()
+        for _, part in ipairs(Workspace:GetDescendants()) do
+            if part.Name == "bed" and part:IsA("BasePart") then
+                local d = (part.Position - root.Position).Magnitude
+                if d <= config.NUKE_RADIUS then
+                    local tool = character:FindFirstChildWhichIsA("Tool")
+                    if tool then
+                        humanoid:EquipTool(tool)
                         tool:Activate()
                     end
                 end
@@ -270,61 +433,11 @@ local function killAura()
     end)
 end
 
-local function antiFall()
-    RunService.RenderStepped:Connect(function()
-        if humanoid.FloorMaterial == Enum.Material.Air and root.Velocity.Y < 0 then
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
-            root.Velocity = Vector3.new(root.Velocity.X, config.ANTI_FALL_VELOCITY, root.Velocity.Z)
-        else
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
-        end
-    end)
-end
-
-local function infiniteJump()
-    UserInputService.InputBegan:Connect(function(input)
-        if input.KeyCode == Enum.KeyCode.Space or input.UserInputType == Enum.UserInputType.Touch then
-            states.infJumpEnabled = true
-        end
-    end)
-    UserInputService.InputEnded:Connect(function(input)
-        if input.KeyCode == Enum.KeyCode.Space or input.UserInputType == Enum.UserInputType.Touch then
-            states.infJumpEnabled = false
-        end
-    end)
-    RunService.RenderStepped:Connect(function()
-        if states.infJumpEnabled then
-            root.Velocity = Vector3.new(root.Velocity.X, config.JUMP_VELOCITY, root.Velocity.Z)
-        end
-    end)
-end
-
-local function autoSprint()
-    RunService.RenderStepped:Connect(function()
-        if states.autoSprint then
-            humanoid.WalkSpeed = config.AUTO_SPRINT_SPEED
-        end
-    end)
-end
-
-local function antiSuffocation()
-    RunService.RenderStepped:Connect(function()
-        if root.Position.Y < config.SAFE_GROUND_THRESHOLD and root.Velocity.Y == 0 then
-            root.CFrame = root.CFrame + Vector3.new(0, config.ANTI_FALL_HEIGHT, 0)
-        end
-    end)
-end
-
 local function antiDeath()
     RunService.RenderStepped:Connect(function()
-        if humanoid.Health <= 35 and not states.antiDeath then
-            states.antiDeath = true
-            states.lastSafePosition = root.Position
-            root.CFrame = CFrame.new(root.Position.X, 50000, root.Position.Z)
-            Camera.CFrame = CFrame.new(root.Position)
-        elseif humanoid.Health > 35 and states.antiDeath then
-            states.antiDeath = false
-            root.CFrame = CFrame.new(states.lastSafePosition)
+        if humanoid.Health < config.SAFE_HP_THRESHOLD then
+            local safePos = getSafeLocation()
+            root.CFrame = CFrame.new(safePos)
         end
     end)
 end
@@ -333,59 +446,46 @@ local function setFOV()
     Camera.FieldOfView = config.FOV
 end
 
-local function onPlayerRespawn()
-    player.CharacterAdded:Connect(function(newCharacter)
-        character = newCharacter
-        humanoid = character:WaitForChild("Humanoid",10) or error("Humanoid not found")
-        root = character:WaitForChild("HumanoidRootPart",10) or error("HumanoidRootPart not found")
-        initializeESP()
-        antiHit()
-        antiVoid()
-        wallClimb()
-        antiKnockback()
-        nuker()
-        killAura()
-        antiFall()
-        infiniteJump()
-        autoSprint()
-        antiSuffocation()
-        antiDeath()
-        setFOV()
-    end)
-end
-
-onPlayerRespawn()
-
-initializeConfig()
-initializeESP()
-antiHit()
-antiVoid()
-wallClimb()
-antiKnockback()
-nuker()
-killAura()
-antiFall()
-infiniteJump()
-autoSprint()
-antiSuffocation()
-antiDeath()
-setFOV()
-
-player.CharacterAdded:Connect(function(newCharacter)
-    character = newCharacter
-    humanoid = character:WaitForChild("Humanoid",10) or error("Humanoid not found")
-    root = character:WaitForChild("HumanoidRootPart",10) or error("HumanoidRootPart not found")
+local function initializeFeatures()
+    debugLog("Initializing features...")
     initializeESP()
-    antiHit()
-    antiVoid()
+    advancedAntiHit()
     wallClimb()
-    antiKnockback()
-    nuker()
-    killAura()
-    antiFall()
+    antiVoid()
     infiniteJump()
     autoSprint()
     antiSuffocation()
+    antiKnockback()
+    killAura()
+    nuker()
     antiDeath()
     setFOV()
+end
+
+local function onCharacterAdded(char)
+    character = char
+    humanoid = character:WaitForChild("Humanoid", 10)
+    root = character:WaitForChild("HumanoidRootPart", 10)
+    states.lastSafePosition = root.Position
+    initializeConfig()
+    initializeFeatures()
+end
+
+player.CharacterAdded:Connect(function(newChar)
+    onCharacterAdded(newChar)
 end)
+
+onCharacterAdded(character)
+
+local function performanceMonitor()
+    while true do
+        local fps = 1/RunService.RenderStepped:Wait()
+        debugLog("FPS: " .. tostring(math.floor(fps)))
+    end
+end
+
+spawn(performanceMonitor)
+
+while true do
+    RunService.RenderStepped:Wait()
+end
