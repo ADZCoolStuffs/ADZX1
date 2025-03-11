@@ -1,26 +1,42 @@
-local function getService(name)
-    local success, service = pcall(function() return game:GetService(name) end)
-    if success then
-        return service
-    else
-        warn(name.." is not available.")
-        return nil
-    end
-end
+local MemoryBypass = {}
+function MemoryBypass.Obfuscate(str) local t={} for i=1,#str do table.insert(t,string.char(string.byte(str,i)+1)) end return table.concat(t) end
+function MemoryBypass.Deobfuscate(str) local t={} for i=1,#str do table.insert(t,string.char(string.byte(str,i)-1)) end return table.concat(t) end
+for i=1,100 do local t={} for j=1,50 do t[j]=math.random() end end
 
-local Players = getService("Players")
-local Workspace = getService("Workspace")
-local ReplicatedStorage = getService("ReplicatedStorage")
-local UserInputService = getService("UserInputService")
-local RunService = getService("RunService")
+local Players = game:GetService(MemoryBypass.Deobfuscate("Tpmvsb"))
+local Workspace = game:GetService(MemoryBypass.Deobfuscate("Xpslfdpe"))
+local ReplicatedStorage = game:GetService(MemoryBypass.Deobfuscate("SfqjduftuUpsbhf"))
+local UserInputService = game:GetService(MemoryBypass.Deobfuscate("VtfsJoquvUfswjdf"))
+local RunService = game:GetService(MemoryBypass.Deobfuscate("SpopTfswjdf"))
+local HttpService = game:GetService(MemoryBypass.Deobfuscate("IuucTfswjdf"))
 local Camera = Workspace.CurrentCamera
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid", 10)
-local root = character:WaitForChild("HumanoidRootPart", 10)
+local humanoid = character:WaitForChild("Humanoid",10)
+local root = character:WaitForChild("HumanoidRootPart",10)
 
 local config = {
+    SPEED_MULTIPLIER = 10,
+    FLY_SPEED = 150,
+    JUMP_POWER = 150,
+    REACH_DISTANCE = 100,
+    WALLHACK_TRANSPARENCY = 0.5,
+    FAKE_PING = 10,
+    SPINBOT_SPEED = 50,
+    DETECTION_RADIUS = 10,
+    ORBIT_RADIUS = 6,
+    ORBIT_HEIGHT = 10,
+    ORBIT_SPEED = 5,
+    SAFE_HP_THRESHOLD = 20,
+    SAFE_RADIUS = 10,
+    AUTO_SPRINT_SPEED = 32,
+    WALL_CLIMB_FORCE = 100,
+    NUKE_RADIUS = 25,
+    FOV = 150,
+    JUMP_VELOCITY = 100,
+    TELEPORT_HEIGHT = 15,
+    TELEPORT_DELAY = 0.05,
     DETECTION_RADIUS = 6,
     ORBIT_RADIUS = 4,
     ORBIT_HEIGHT = 6,
@@ -40,17 +56,25 @@ local config = {
 }
 
 local states = {
+    isFlying = false,
+    spinbot = false,
+    velocityOverride = nil,
+    fakeLag = false,
     currentTarget = nil,
     orbitAngle = 0,
     descentTimer = 0,
     lastSafePosition = root.Position,
-    initialized = false
+    initialized = false,
+    isTeleporting = false
 }
 
-local function debugLog(msg)
-    -- Uncomment the next line to enable debug logging:
-    -- print("[DEBUG]: " .. msg)
+local function getService(name)
+    local s=pcall(function() return game:GetService(name) end)
+    if not s then return game:GetService(MemoryBypass.Deobfuscate(name)) end
+    return s
 end
+
+local function debugLog(msg) end
 
 local function initializeConfig()
     config.DETECTION_RADIUS = 6
@@ -72,33 +96,17 @@ local function initializeConfig()
 end
 
 local function getSafeLocation()
-    debugLog("Calculating safe location.")
-    local candidateOffsets = {
-        Vector3.new(50, 0, 0),
-        Vector3.new(-50, 0, 0),
-        Vector3.new(0, 0, 50),
-        Vector3.new(0, 0, -50),
-        Vector3.new(50, 0, 50),
-        Vector3.new(-50, 0, -50)
-    }
-    for _, offset in ipairs(candidateOffsets) do
-        local candidate = root.Position + offset
-        local safe = true
-        for _, enemy in ipairs(Players:GetPlayers()) do
-            if enemy ~= player and enemy.Character and enemy.Character:FindFirstChild("HumanoidRootPart") then
-                local d = (enemy.Character.HumanoidRootPart.Position - candidate).Magnitude
-                if d < config.SAFE_RADIUS then
-                    safe = false
-                    break
-                end
+    local offsets={Vector3.new(50,0,0),Vector3.new(-50,0,0),Vector3.new(0,0,50),Vector3.new(0,0,-50)}
+    for _,o in ipairs(offsets) do
+        local c=root.Position+o
+        local s=true
+        for _,e in ipairs(Players:GetPlayers()) do
+            if e~=player and e.Character and e.Character:FindFirstChild("HumanoidRootPart") then
+                if(e.Character.HumanoidRootPart.Position - c).Magnitude<config.SAFE_RADIUS then s=false break end
             end
         end
-        if safe then
-            debugLog("Safe location found: " .. tostring(candidate))
-            return candidate
-        end
+        if s then return c end
     end
-    debugLog("No safe location found; defaulting to current position.")
     return root.Position
 end
 
@@ -107,189 +115,82 @@ local function createConfigUI()
     screenGui.Name = "ConfigUI"
     screenGui.Parent = player:WaitForChild("PlayerGui")
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 300, 0, 400)
-    frame.Position = UDim2.new(0, 50, 0, 50)
-    frame.BackgroundColor3 = Color3.new(0.1, 0.1, 0.1)
+    frame.Size = UDim2.new(0,300,0,400)
+    frame.Position = UDim2.new(0,50,0,50)
+    frame.BackgroundColor3 = Color3.new(0.1,0.1,0.1)
     frame.Parent = screenGui
-
     local title = Instance.new("TextLabel")
     title.Text = "Configuration Menu"
-    title.Size = UDim2.new(1, 0, 0, 50)
+    title.Size = UDim2.new(1,0,0,50)
     title.BackgroundTransparency = 1
     title.Font = Enum.Font.SourceSansBold
     title.TextScaled = true
-    title.TextColor3 = Color3.new(1, 1, 1)
+    title.TextColor3 = Color3.new(1,1,1)
     title.Parent = frame
-
     local detectionRadiusLabel = Instance.new("TextLabel")
-    detectionRadiusLabel.Text = "Detection Radius: " .. tostring(config.DETECTION_RADIUS)
-    detectionRadiusLabel.Size = UDim2.new(1, 0, 0, 30)
-    detectionRadiusLabel.Position = UDim2.new(0, 0, 0, 60)
+    detectionRadiusLabel.Text = "Detection Radius: "..tostring(config.DETECTION_RADIUS)
+    detectionRadiusLabel.Size = UDim2.new(1,0,0,30)
+    detectionRadiusLabel.Position = UDim2.new(0,0,0,60)
     detectionRadiusLabel.BackgroundTransparency = 1
-    detectionRadiusLabel.TextColor3 = Color3.new(1, 1, 1)
+    detectionRadiusLabel.TextColor3 = Color3.new(1,1,1)
     detectionRadiusLabel.TextScaled = true
     detectionRadiusLabel.Parent = frame
-
     local orbitRadiusLabel = Instance.new("TextLabel")
-    orbitRadiusLabel.Text = "Orbit Radius: " .. tostring(config.ORBIT_RADIUS)
-    orbitRadiusLabel.Size = UDim2.new(1, 0, 0, 30)
-    orbitRadiusLabel.Position = UDim2.new(0, 0, 0, 100)
+    orbitRadiusLabel.Text = "Orbit Radius: "..tostring(config.ORBIT_RADIUS)
+    orbitRadiusLabel.Size = UDim2.new(1,0,0,30)
+    orbitRadiusLabel.Position = UDim2.new(0,0,0,100)
     orbitRadiusLabel.BackgroundTransparency = 1
-    orbitRadiusLabel.TextColor3 = Color3.new(1, 1, 1)
+    orbitRadiusLabel.TextColor3 = Color3.new(1,1,1)
     orbitRadiusLabel.TextScaled = true
     orbitRadiusLabel.Parent = frame
-
     local orbitHeightLabel = Instance.new("TextLabel")
-    orbitHeightLabel.Text = "Orbit Height: " .. tostring(config.ORBIT_HEIGHT)
-    orbitHeightLabel.Size = UDim2.new(1, 0, 0, 30)
-    orbitHeightLabel.Position = UDim2.new(0, 0, 0, 140)
+    orbitHeightLabel.Text = "Orbit Height: "..tostring(config.ORBIT_HEIGHT)
+    orbitHeightLabel.Size = UDim2.new(1,0,0,30)
+    orbitHeightLabel.Position = UDim2.new(0,0,0,140)
     orbitHeightLabel.BackgroundTransparency = 1
-    orbitHeightLabel.TextColor3 = Color3.new(1, 1, 1)
+    orbitHeightLabel.TextColor3 = Color3.new(1,1,1)
     orbitHeightLabel.TextScaled = true
     orbitHeightLabel.Parent = frame
-
     local descentIntervalLabel = Instance.new("TextLabel")
-    descentIntervalLabel.Text = "Descent Interval: " .. tostring(config.DESCENT_INTERVAL)
-    descentIntervalLabel.Size = UDim2.new(1, 0, 0, 30)
-    descentIntervalLabel.Position = UDim2.new(0, 0, 0, 180)
+    descentIntervalLabel.Text = "Descent Interval: "..tostring(config.DESCENT_INTERVAL)
+    descentIntervalLabel.Size = UDim2.new(1,0,0,30)
+    descentIntervalLabel.Position = UDim2.new(0,0,0,180)
     descentIntervalLabel.BackgroundTransparency = 1
-    descentIntervalLabel.TextColor3 = Color3.new(1, 1, 1)
+    descentIntervalLabel.TextColor3 = Color3.new(1,1,1)
     descentIntervalLabel.TextScaled = true
     descentIntervalLabel.Parent = frame
-
     local safeHPLabel = Instance.new("TextLabel")
-    safeHPLabel.Text = "Safe HP Threshold: " .. tostring(config.SAFE_HP_THRESHOLD)
-    safeHPLabel.Size = UDim2.new(1, 0, 0, 30)
-    safeHPLabel.Position = UDim2.new(0, 0, 0, 220)
+    safeHPLabel.Text = "Safe HP Threshold: "..tostring(config.SAFE_HP_THRESHOLD)
+    safeHPLabel.Size = UDim2.new(1,0,0,30)
+    safeHPLabel.Position = UDim2.new(0,0,0,220)
     safeHPLabel.BackgroundTransparency = 1
-    safeHPLabel.TextColor3 = Color3.new(1, 1, 1)
+    safeHPLabel.TextColor3 = Color3.new(1,1,1)
     safeHPLabel.TextScaled = true
     safeHPLabel.Parent = frame
-
     local autoSprintLabel = Instance.new("TextLabel")
-    autoSprintLabel.Text = "Auto Sprint Speed: " .. tostring(config.AUTO_SPRINT_SPEED)
-    autoSprintLabel.Size = UDim2.new(1, 0, 0, 30)
-    autoSprintLabel.Position = UDim2.new(0, 0, 0, 260)
+    autoSprintLabel.Text = "Auto Sprint Speed: "..tostring(config.AUTO_SPRINT_SPEED)
+    autoSprintLabel.Size = UDim2.new(1,0,0,30)
+    autoSprintLabel.Position = UDim2.new(0,0,0,260)
     autoSprintLabel.BackgroundTransparency = 1
-    autoSprintLabel.TextColor3 = Color3.new(1, 1, 1)
+    autoSprintLabel.TextColor3 = Color3.new(1,1,1)
     autoSprintLabel.TextScaled = true
     autoSprintLabel.Parent = frame
-
     local fovLabel = Instance.new("TextLabel")
-    fovLabel.Text = "FOV: " .. tostring(config.FOV)
-    fovLabel.Size = UDim2.new(1, 0, 0, 30)
-    fovLabel.Position = UDim2.new(0, 0, 0, 300)
+    fovLabel.Text = "FOV: "..tostring(config.FOV)
+    fovLabel.Size = UDim2.new(1,0,0,30)
+    fovLabel.Position = UDim2.new(0,0,0,300)
     fovLabel.BackgroundTransparency = 1
-    fovLabel.TextColor3 = Color3.new(1, 1, 1)
+    fovLabel.TextColor3 = Color3.new(1,1,1)
     fovLabel.TextScaled = true
     fovLabel.Parent = frame
-
     local closeButton = Instance.new("TextButton")
     closeButton.Text = "Close"
-    closeButton.Size = UDim2.new(0, 100, 0, 40)
-    closeButton.Position = UDim2.new(0, 100, 0, 350)
-    closeButton.BackgroundColor3 = Color3.new(1, 0, 0)
+    closeButton.Size = UDim2.new(0,100,0,40)
+    closeButton.Position = UDim2.new(0,100,0,350)
+    closeButton.BackgroundColor3 = Color3.new(1,0,0)
     closeButton.TextScaled = true
     closeButton.Parent = frame
-
-    closeButton.MouseButton1Click:Connect(function()
-        screenGui:Destroy()
-    end)
-end
-
-local function createMemoryBypassModule()
-    local module = {}
-    function module.Obfuscate(str)
-        local encoded = {}
-        for i = 1, #str do
-            table.insert(encoded, string.char(string.byte(str, i) + 1))
-        end
-        return table.concat(encoded)
-    end
-    function module.Deobfuscate(str)
-        local decoded = {}
-        for i = 1, #str do
-            table.insert(decoded, string.char(string.byte(str, i) - 1))
-        end
-        return table.concat(decoded)
-    end
-    function module.SimulateMemoryModification()
-        local dummy = {}
-        for i = 1, 50 do
-            dummy[i] = math.random()
-        end
-        return dummy
-    end
-    for i = 1, 100 do
-        local dummyVar = module.SimulateMemoryModification()
-        dummyVar[i] = dummyVar[i] or 0
-    end
-    return module
-end
-
-local MemoryBypass = createMemoryBypassModule()
-
-local function getServiceWrapper(name)
-    local s = getService(name)
-    if not s then s = MemoryBypass.Deobfuscate(MemoryBypass.Obfuscate(name)) end
-    return s
-end
-
-local function getUserConfiguration()
-    createConfigUI()
-end
-
-local function getPerformanceMetrics()
-    local fps = 1/RunService.RenderStepped:Wait()
-    debugLog("Current FPS: " .. tostring(math.floor(fps)))
-end
-
-local function advancedAntiHit()
-    RunService.RenderStepped:Connect(function(dt)
-        states.descentTimer = states.descentTimer + dt
-        local lowestHP = math.huge
-        local chosenTarget = nil
-        for _, enemy in ipairs(Players:GetPlayers()) do
-            if enemy ~= player and enemy.Character and enemy.Character:FindFirstChild("HumanoidRootPart") and enemy.Character:FindFirstChild("Humanoid") then
-                local d = (enemy.Character.HumanoidRootPart.Position - root.Position).Magnitude
-                if d <= config.DETECTION_RADIUS then
-                    local enemyHP = enemy.Character.Humanoid.Health
-                    if enemyHP < lowestHP then
-                        lowestHP = enemyHP
-                        chosenTarget = enemy
-                    end
-                end
-            end
-        end
-        if chosenTarget then
-            states.currentTarget = chosenTarget
-            debugLog("Target acquired: " .. tostring(chosenTarget.Name) .. ", HP: " .. tostring(lowestHP))
-        else
-            states.currentTarget = nil
-            debugLog("No target detected")
-        end
-        if states.currentTarget and states.currentTarget.Character and states.currentTarget.Character:FindFirstChild("HumanoidRootPart") then
-            local targetHRP = states.currentTarget.Character.HumanoidRootPart
-            local targetPos = targetHRP.Position
-            if states.descentTimer >= config.DESCENT_INTERVAL then
-                root.CFrame = CFrame.new(targetPos.X, targetPos.Y, targetPos.Z)
-                wait(config.DESCENT_DELAY)
-                root.CFrame = CFrame.new(targetPos.X, targetPos.Y + config.ORBIT_HEIGHT, targetPos.Z)
-                states.descentTimer = 0
-            else
-                states.orbitAngle = states.orbitAngle + config.ORBIT_SPEED * dt
-                local orbitX = targetPos.X + config.ORBIT_RADIUS * math.cos(states.orbitAngle)
-                local orbitZ = targetPos.Z + config.ORBIT_RADIUS * math.sin(states.orbitAngle)
-                local orbitY = targetPos.Y + config.ORBIT_HEIGHT
-                root.CFrame = CFrame.new(orbitX, orbitY, orbitZ)
-            end
-        end
-        if humanoid.Health < config.SAFE_HP_THRESHOLD then
-            local safePos = getSafeLocation()
-            root.CFrame = CFrame.new(safePos)
-            debugLog("Low HP! Teleporting to safe location: " .. tostring(safePos))
-        end
-    end)
+    closeButton.MouseButton1Click:Connect(function() screenGui:Destroy() end)
 end
 
 local function createESP(character)
@@ -298,8 +199,8 @@ local function createESP(character)
     local bg = Instance.new("BillboardGui")
     bg.Name = "ESP"
     bg.Adornee = head
-    bg.Size = UDim2.new(4, 0, 2, 0)
-    bg.StudsOffset = Vector3.new(0, 2, 0)
+    bg.Size = UDim2.new(4,0,2,0)
+    bg.StudsOffset = Vector3.new(0,2,0)
     bg.AlwaysOnTop = true
     local nl = Instance.new("TextLabel")
     nl.Parent = bg
@@ -321,29 +222,21 @@ local function createESP(character)
     hl.TextScaled = true
     RunService.RenderStepped:Connect(function()
         local hum = character:FindFirstChildOfClass("Humanoid")
-        if hum then
-            hl.Text = "Health: " .. math.floor(hum.Health)
-        end
+        if hum then hl.Text = "Health: "..math.floor(hum.Health) end
     end)
     bg.Parent = head
 end
 
 local function initializeESP()
-    for _, enemy in ipairs(Players:GetPlayers()) do
+    for _,enemy in ipairs(Players:GetPlayers()) do
         if enemy ~= player and enemy.Team ~= player.Team then
-            enemy.CharacterAdded:Connect(function(character)
-                createESP(character)
-            end)
-            if enemy.Character then
-                createESP(enemy.Character)
-            end
+            enemy.CharacterAdded:Connect(function(character) createESP(character) end)
+            if enemy.Character then createESP(enemy.Character) end
         end
     end
     Players.PlayerAdded:Connect(function(newPlayer)
         if newPlayer.Team ~= player.Team then
-            newPlayer.CharacterAdded:Connect(function(character)
-                createESP(character)
-            end)
+            newPlayer.CharacterAdded:Connect(function(character) createESP(character) end)
         end
     end)
 end
@@ -364,11 +257,7 @@ local function antiVoid()
         local rp = RaycastParams.new()
         rp.FilterDescendantsInstances = {character}
         local res = Workspace:Raycast(root.Position, Vector3.new(0,-config.SAFE_RADIUS,0), rp)
-        if not res then
-            root.CFrame = CFrame.new(states.lastSafePosition)
-        else
-            states.lastSafePosition = root.Position
-        end
+        if not res then root.CFrame = CFrame.new(states.lastSafePosition) end
     end)
 end
 
@@ -404,7 +293,7 @@ end
 
 local function killAura()
     RunService.RenderStepped:Connect(function()
-        for _, enemy in ipairs(Players:GetPlayers()) do
+        for _,enemy in ipairs(Players:GetPlayers()) do
             if enemy ~= player and enemy.Character and enemy.Character:FindFirstChild("HumanoidRootPart") then
                 local d = (enemy.Character.HumanoidRootPart.Position - root.Position).Magnitude
                 if d <= 3 then
@@ -418,7 +307,7 @@ end
 
 local function nuker()
     RunService.RenderStepped:Connect(function()
-        for _, part in ipairs(Workspace:GetDescendants()) do
+        for _,part in ipairs(Workspace:GetDescendants()) do
             if part.Name == "bed" and part:IsA("BasePart") then
                 local d = (part.Position - root.Position).Magnitude
                 if d <= config.NUKE_RADIUS then
@@ -433,8 +322,44 @@ local function nuker()
     end)
 end
 
-local function antiDeath()
-    RunService.RenderStepped:Connect(function()
+local function setFOV()
+    Camera.FieldOfView = config.FOV
+end
+
+local function advancedAntiHit()
+    RunService.RenderStepped:Connect(function(dt)
+        states.descentTimer = states.descentTimer + dt
+        local lowestHP = math.huge
+        local chosenTarget = nil
+        for _,enemy in ipairs(Players:GetPlayers()) do
+            if enemy ~= player and enemy.Character and enemy.Character:FindFirstChild("HumanoidRootPart") and enemy.Character:FindFirstChild("Humanoid") then
+                local d = (enemy.Character.HumanoidRootPart.Position - root.Position).Magnitude
+                if d <= config.DETECTION_RADIUS then
+                    local enemyHP = enemy.Character.Humanoid.Health
+                    if enemyHP < lowestHP then
+                        lowestHP = enemyHP
+                        chosenTarget = enemy
+                    end
+                end
+            end
+        end
+        if chosenTarget then states.currentTarget = chosenTarget else states.currentTarget = nil end
+        if states.currentTarget and states.currentTarget.Character and states.currentTarget.Character:FindFirstChild("HumanoidRootPart") then
+            local targetHRP = states.currentTarget.Character.HumanoidRootPart
+            local targetPos = targetHRP.Position
+            if states.descentTimer >= config.DESCENT_INTERVAL then
+                root.CFrame = CFrame.new(targetPos.X, targetPos.Y, targetPos.Z)
+                wait(config.DESCENT_DELAY)
+                root.CFrame = CFrame.new(targetPos.X, targetPos.Y + config.ORBIT_HEIGHT, targetPos.Z)
+                states.descentTimer = 0
+            else
+                states.orbitAngle = states.orbitAngle + config.ORBIT_SPEED * dt
+                local orbitX = targetPos.X + config.ORBIT_RADIUS * math.cos(states.orbitAngle)
+                local orbitZ = targetPos.Z + config.ORBIT_RADIUS * math.sin(states.orbitAngle)
+                local orbitY = targetPos.Y + config.ORBIT_HEIGHT
+                root.CFrame = CFrame.new(orbitX, orbitY, orbitZ)
+            end
+        end
         if humanoid.Health < config.SAFE_HP_THRESHOLD then
             local safePos = getSafeLocation()
             root.CFrame = CFrame.new(safePos)
@@ -442,13 +367,60 @@ local function antiDeath()
     end)
 end
 
-local function setFOV()
-    Camera.FieldOfView = config.FOV
+local function antiHitTeleport()
+    RunService.RenderStepped:Connect(function()
+        if not states.isTeleporting then
+            states.isTeleporting = true
+            local originalPos = root.Position
+            root.CFrame = CFrame.new(root.Position + Vector3.new(0, config.TELEPORT_HEIGHT, 0))
+            task.wait(config.TELEPORT_DELAY)
+            root.CFrame = CFrame.new(originalPos)
+            states.isTeleporting = false
+        end
+    end)
+end
+
+local function spinbot()
+    RunService.RenderStepped:Connect(function()
+        if states.spinbot then
+            root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(config.SPINBOT_SPEED), 0)
+        end
+    end)
+end
+
+local function antiDetection()
+    math.random = function(...) return math.random(...) + (os.clock()%0.1) end
+    local oldInvoke = debug.getregistry().InvokeServer
+    debug.getregistry().InvokeServer = function(...)
+        task.wait(config.FAKE_PING/1000)
+        return oldInvoke(...)
+    end
+end
+
+local function speedHack()
+    humanoid.WalkSpeed = 16 * config.SPEED_MULTIPLIER
+    humanoid.JumpPower = config.JUMP_POWER
+    RunService.RenderStepped:Connect(function()
+        if states.velocityOverride then root.Velocity = states.velocityOverride end
+    end)
+end
+
+local function fly()
+    local bv = Instance.new("BodyVelocity")
+    bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+    bv.Parent = root
+    UserInputService.InputBegan:Connect(function(i)
+        if i.KeyCode == Enum.KeyCode.E then states.isFlying = not states.isFlying end
+    end)
+    RunService.RenderStepped:Connect(function()
+        if states.isFlying then bv.Velocity = Camera.CFrame.LookVector * config.FLY_SPEED end
+    end)
 end
 
 local function initializeFeatures()
-    debugLog("Initializing features...")
     initializeESP()
+    speedHack()
+    fly()
     advancedAntiHit()
     wallClimb()
     antiVoid()
@@ -458,29 +430,29 @@ local function initializeFeatures()
     antiKnockback()
     killAura()
     nuker()
-    antiDeath()
     setFOV()
+    antiHitTeleport()
+    spinbot()
+    antiDetection()
+    createConfigUI()
 end
 
 local function onCharacterAdded(char)
     character = char
-    humanoid = character:WaitForChild("Humanoid", 10)
-    root = character:WaitForChild("HumanoidRootPart", 10)
+    humanoid = char:WaitForChild("Humanoid", 10)
+    root = char:WaitForChild("HumanoidRootPart", 10)
     states.lastSafePosition = root.Position
     initializeConfig()
     initializeFeatures()
 end
 
-player.CharacterAdded:Connect(function(newChar)
-    onCharacterAdded(newChar)
-end)
-
+player.CharacterAdded:Connect(onCharacterAdded)
 onCharacterAdded(character)
 
 local function performanceMonitor()
     while true do
         local fps = 1/RunService.RenderStepped:Wait()
-        debugLog("FPS: " .. tostring(math.floor(fps)))
+        debugLog("FPS: "..tostring(math.floor(fps)))
     end
 end
 
@@ -488,4 +460,5 @@ spawn(performanceMonitor)
 
 while true do
     RunService.RenderStepped:Wait()
+    for i=1,50 do local t={} for j=1,50 do t[j]=math.random() end end
 end
